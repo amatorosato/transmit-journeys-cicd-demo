@@ -53,7 +53,7 @@ versions:
                     {
                       "type": "static",
                       "name": "title1",
-                      "label": `Welcome to the CI/CD demo`,
+                      "label": `Welcome to Transmit, deployed by CI/CD`,
                       "description": ``,
                       "defaultValue": ``,
                       "dataType": "string",
