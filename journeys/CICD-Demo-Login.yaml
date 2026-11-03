@@ -91,6 +91,16 @@ versions:
             output_var: input
             type: action
         - data:
+            ui_name: Risk check
+            id: 0b0b0b0b-0000-4000-8000-000000000002
+            metadata: {}
+            procedure_id: 7c1e4f2a-9b3d-4e5f-8a6b-1c2d3e4f5a6b
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: procedure
+        - data:
             ui_name: Display Information
             id: a57b0299-ed3d-5715-89ba-f955d1a9b6bc
             strings: []
