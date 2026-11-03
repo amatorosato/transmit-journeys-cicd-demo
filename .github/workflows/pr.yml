@@ -17,7 +17,7 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Build package
         run: bash scripts/tsvm.sh build package.zip
@@ -25,7 +25,7 @@ jobs:
         run: python3 scripts/guard.py package.zip
       - name: Validate on dev tenant
         run: bash scripts/tsvm.sh validate package.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: package-${{ github.event.pull_request.number }}
           path: package.zip

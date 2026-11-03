@@ -18,13 +18,13 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ inputs.region }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Build package
         run: bash scripts/tsvm.sh build package.zip
       - name: Backup of the tenant before the change
         run: bash scripts/tsvm.sh export backup-${{ inputs.environment }}.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: backup-${{ inputs.environment }}-${{ github.sha }}
           path: backup-${{ inputs.environment }}.zip
