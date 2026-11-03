@@ -1,0 +1,38 @@
+name: Deploy to one tenant
+
+# Reusable: backup export -> guard -> validate -> import (automatic rollback on failure).
+on:
+  workflow_call:
+    inputs:
+      environment: { required: true, type: string }
+      region:      { required: true, type: string }
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
+      TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
+      TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
+      TS_REGION: ${{ inputs.region }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pyyaml
+      - name: Build package
+        run: bash scripts/tsvm.sh build package.zip
+      - name: Backup of the tenant before the change
+        run: bash scripts/tsvm.sh export backup-${{ inputs.environment }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ inputs.environment }}-${{ github.sha }}
+          path: backup-${{ inputs.environment }}.zip
+          retention-days: 90
+      - name: Validate
+        run: bash scripts/tsvm.sh validate package.zip
+      - name: Import (rollback on failure)
+        run: bash scripts/tsvm.sh import package.zip
+      - name: Check the tenant now matches Git
+        run: |
+          bash scripts/tsvm.sh export after.zip
+          python3 scripts/drift.py after.zip
