@@ -9,13 +9,13 @@ on:
 
 jobs:
   drift:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(matrix.runner) }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { environment: dev, region: dev }
-          - { environment: sbx-readonly, region: sbx }
+          - { environment: dev, region: dev, runner: '["self-hosted", "transmit-dev"]' }
+          - { environment: sbx-readonly, region: sbx, runner: '"ubuntu-latest"' }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
@@ -24,7 +24,7 @@ jobs:
       TS_REGION: ${{ matrix.region }}
     steps:
       - uses: actions/checkout@v4
-      - run: pip install pyyaml
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export tenant
         run: bash scripts/tsvm.sh export live.zip
       - name: Compare with Git

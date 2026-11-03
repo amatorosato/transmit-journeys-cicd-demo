@@ -9,6 +9,9 @@ Version Management API (export / validate / import). No Terraform, no extra serv
 | `sbx` | amato-rosato-sbx-demo (region `sbx`) | **production**: deploy only after approval (required reviewers) |
 | `sbx-readonly` | same tenant as `sbx`, no approval | used only by the drift check, which never changes the tenant |
 
+The DEV tenant (`api.idsec-dev.com`) only accepts the corporate network, so the `dev` jobs run on a
+**self-hosted runner** (label `transmit-dev`) on a machine inside that network; the `sbx` jobs run on GitHub's runners.
+
 ## Repository
 
 ```

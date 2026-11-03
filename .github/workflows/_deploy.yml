@@ -9,7 +9,8 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # the DEV tenant only accepts the corporate network: self-hosted runner; other regions use GitHub's
+    runs-on: ${{ fromJSON(inputs.region == 'dev' && '["self-hosted", "transmit-dev"]' || '"ubuntu-latest"') }}
     environment: ${{ inputs.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
@@ -18,7 +19,7 @@ jobs:
       TS_REGION: ${{ inputs.region }}
     steps:
       - uses: actions/checkout@v4
-      - run: pip install pyyaml
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Build package
         run: bash scripts/tsvm.sh build package.zip
       - name: Backup of the tenant before the change

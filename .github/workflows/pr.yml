@@ -8,7 +8,8 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    # the DEV tenant only accepts the corporate network: self-hosted runner
+    runs-on: [self-hosted, transmit-dev]
     environment: dev
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
@@ -17,7 +18,7 @@ jobs:
       TS_REGION: dev
     steps:
       - uses: actions/checkout@v4
-      - run: pip install pyyaml
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Build package
         run: bash scripts/tsvm.sh build package.zip
       - name: Safety guard
