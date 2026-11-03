@@ -1,7 +1,8 @@
 name: Deploy
 
-# Merge to main: deploy to dev, then wait for approval (environment "sbx" required reviewers)
-# and deploy the same commit to sbx (the demo's production).
+# Merge to main: deploy to dev (B2B Core Steps Test Tenant), then after approval to sbx
+# (amato-rosato-sbx-demo), then after a second approval to prod (Vodafone-CIAM-POC, EU).
+# The same commit goes through every stage.
 on:
   push:
     branches: [main]
@@ -21,4 +22,9 @@ jobs:
     needs: dev
     uses: ./.github/workflows/_deploy.yml
     with: { environment: sbx, region: sbx }
+    secrets: inherit
+  prod:
+    needs: sbx
+    uses: ./.github/workflows/_deploy.yml
+    with: { environment: prod, region: eu }
     secrets: inherit

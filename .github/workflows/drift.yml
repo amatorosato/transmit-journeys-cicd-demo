@@ -16,6 +16,7 @@ jobs:
         include:
           - { environment: dev, region: dev, runner: '["self-hosted", "transmit-dev"]' }
           - { environment: sbx-readonly, region: sbx, runner: '"ubuntu-latest"' }
+          - { environment: prod-readonly, region: eu, runner: '"ubuntu-latest"' }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
