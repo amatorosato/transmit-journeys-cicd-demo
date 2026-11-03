@@ -32,12 +32,6 @@ versions:
             id: aba96889-a379-5648-b6f6-4aed7e5ec96c
             strings: []
             action:
-              form_title:
-                type: expression
-                value: '`Welcome to Transmit, deployed by CI/CD`'
-              form_description:
-                type: expression
-                value: '`Enter your email to continue`'
               metadata:
                 type: get_information
               form_id: cicd_demo_login
@@ -55,6 +49,28 @@ versions:
                       "primary": `Continue`,
                       "secondary": ``,
                       "secondaryFormat": "link"
+                    },
+                    {
+                      "type": "static",
+                      "name": "title1",
+                      "label": `Welcome to Transmit, deployed by CI/CD`,
+                      "description": ``,
+                      "defaultValue": ``,
+                      "dataType": "string",
+                      "format": "title",
+                      "required": false,
+                      "readonly": false
+                    },
+                    {
+                      "type": "static",
+                      "name": "subtitle1",
+                      "label": `Enter your email to continue`,
+                      "description": ``,
+                      "defaultValue": ``,
+                      "dataType": "string",
+                      "format": "subtitle",
+                      "required": false,
+                      "readonly": false
                     },
                     {
                       "type": "input",
