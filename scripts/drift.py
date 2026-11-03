@@ -14,9 +14,18 @@ import yaml
 IGNORED = ("last_modified_date",)   # added by the tenant on export
 
 
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+# multi-line strings (e.g. a form schema) as blocks, so the diff shows only the changed lines
+_Dumper.add_representer(str, lambda d, v: d.represent_scalar(
+    "tag:yaml.org,2002:str", v, style="|" if "\n" in v else None))
+
+
 def norm(doc):
     doc = {k: v for k, v in doc.items() if k not in IGNORED}
-    return yaml.safe_dump(doc, sort_keys=True, width=1000, allow_unicode=True).splitlines()
+    return yaml.dump(doc, Dumper=_Dumper, sort_keys=True, width=1000, allow_unicode=True).splitlines()
 
 
 def main(export_zip):
