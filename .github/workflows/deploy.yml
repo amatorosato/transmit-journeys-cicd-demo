@@ -1,0 +1,24 @@
+name: Deploy
+
+# Merge to main: deploy to dev, then wait for approval (environment "sbx" required reviewers)
+# and deploy the same commit to sbx (the demo's production).
+on:
+  push:
+    branches: [main]
+    paths: ["journeys/**", "sub-journeys/**", "connections/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  dev:
+    uses: ./.github/workflows/_deploy.yml
+    with: { environment: dev, region: dev }
+    secrets: inherit
+  sbx:
+    needs: dev
+    uses: ./.github/workflows/_deploy.yml
+    with: { environment: sbx, region: sbx }
+    secrets: inherit

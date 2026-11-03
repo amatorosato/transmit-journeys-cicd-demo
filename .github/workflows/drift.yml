@@ -1,0 +1,31 @@
+name: Drift check
+
+# Nightly (and on demand): export each tenant and compare the journeys with Git.
+# Uses the "<env>-readonly" environments: same tenant, no approval, so the check never waits.
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { environment: dev, region: dev, runner: '["self-hosted", "transmit-dev"]' }
+          - { environment: sbx-readonly, region: sbx, runner: '"ubuntu-latest"' }
+    environment: ${{ matrix.environment }}
+    env:
+      TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
+      TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
+      TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
+      TS_REGION: ${{ matrix.region }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
+      - name: Export tenant
+        run: bash scripts/tsvm.sh export live.zip
+      - name: Compare with Git
+        run: python3 scripts/drift.py live.zip
