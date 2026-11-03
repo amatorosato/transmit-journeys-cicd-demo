@@ -6,11 +6,13 @@ Version Management API (export / validate / import). No Terraform, no extra serv
 | GitHub environment | Tenant | Role in the demo |
 |---|---|---|
 | `dev` | B2B Core Steps Test Tenant (region `dev`) | development: every PR is validated here, every merge deploys here |
-| `sbx` | amato-rosato-sbx-demo (region `sbx`) | **production**: deploy only after approval (required reviewers) |
+| `sbx` | amato-rosato-sbx-demo (region `sbx`) | staging: deploy only after approval (required reviewers) |
+| `prod` | Vodafone-CIAM-POC (region `eu`) | **production**: deploy only after a second approval |
 | `sbx-readonly` | same tenant as `sbx`, no approval | used only by the drift check, which never changes the tenant |
+| `prod-readonly` | same tenant as `prod`, no approval | used only by the drift check |
 
 The DEV tenant (`api.idsec-dev.com`) only accepts the corporate network, so the `dev` jobs run on a
-**self-hosted runner** (label `transmit-dev`) on a machine inside that network; the `sbx` jobs run on GitHub's runners.
+**self-hosted runner** (label `transmit-dev`) on a machine inside that network; the `sbx` and `prod` jobs run on GitHub's runners.
 
 ## Repository
 
@@ -29,7 +31,7 @@ scripts/drift.py     compares Git with a tenant export
 | Workflow | When | What |
 |---|---|---|
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
-| **Deploy** (`deploy.yml`) | merge to `main` | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval**, and repeats on `sbx` with the same commit. |
+| **Deploy** (`deploy.yml`) | merge to `main` | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `sbx`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports each tenant and flags journeys that differ from Git. |
 
 Notes:
@@ -50,10 +52,11 @@ Notes:
    the check is red, merge is blocked. Optional: `demo/broken-empty-package` (all journeys deleted by
    mistake) → the guard answers `REFUSED`. *"Errors stop before production."*
 4. **Merge and promotion with approval (5 min).** Merge the good PR. Deploy runs on `dev` (backup, import,
-   verify), then stops on **Review deployments** for `sbx`. Approve, and the same commit reaches `sbx`.
-   Show the new title with the console's *Test journey*. *"Separation of duties, audit trail, one artifact."*
-5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the console on `sbx`,
-   then run **Drift check** manually: the `sbx-readonly` job is red and shows the diff.
+   verify), then stops on **Review deployments** for `sbx`. Approve, and the same commit reaches `sbx`;
+   it stops again for `prod`: approve, and it reaches production. Show the new title in the form builder
+   or with the console's *Test journey*. *"Separation of duties, audit trail, one artifact."*
+5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder on
+   `prod`, then run **Drift check** manually: the `prod-readonly` job is red and shows the changed line.
    *"Designers can use the visual editor; Git catches the difference."*
 6. **Rollback (2 min, optional).** Revert the merge commit with a PR and promote it again, or download the
    backup artifact saved before the import.
