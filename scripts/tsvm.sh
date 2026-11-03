@@ -33,9 +33,15 @@ case "$TS_REGION" in
   *) echo "unknown TS_REGION $TS_REGION" >&2; exit 1 ;;
 esac
 
-TOKEN=$(curl -sf -X POST "https://$API/oidc/token" \
+TOK=$(mktemp)
+CODE=$(curl -s -m 60 -o "$TOK" -w '%{http_code}' -X POST "https://$API/oidc/token" \
   --data-urlencode "client_id=$TS_CLIENT_ID" --data-urlencode "client_secret=$TS_CLIENT_SECRET" \
-  -d grant_type=client_credentials | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+  -d grant_type=client_credentials) || CODE="000 (connection failed: $API not reachable)"
+TOKEN=$(python3 -c 'import sys,json;print(json.load(open(sys.argv[1])).get("access_token",""))' "$TOK" 2>/dev/null || true)
+if [ -z "$TOKEN" ]; then
+  echo "token request to $API failed: HTTP $CODE" >&2; head -c 300 "$TOK" >&2; echo >&2; rm -f "$TOK"; exit 1
+fi
+rm -f "$TOK"
 URL="https://$VM/version"
 
 if [ "$CMD" = export ]; then
