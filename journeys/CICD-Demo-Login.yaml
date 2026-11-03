@@ -34,7 +34,7 @@ versions:
             action:
               form_title:
                 type: expression
-                value: '`Welcome to the CI/CD demo`'
+                value: '`Welcome to Transmit, deployed by CI/CD`'
               form_description:
                 type: expression
                 value: '`Enter your email to continue`'
