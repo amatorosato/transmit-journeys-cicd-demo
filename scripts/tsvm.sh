@@ -2,7 +2,10 @@
 # Transmit Version Management helper for the pipeline.
 #   scripts/tsvm.sh build    <out.zip>   package journeys/ (+ sub-journeys/, connections/) as a selective ZIP
 #   scripts/tsvm.sh validate <pkg.zip>   dry run on the tenant; fails unless the body says "status": "success"
-#   scripts/tsvm.sh import   <pkg.zip>   import with failureRollBack=true
+#   scripts/tsvm.sh import   <pkg.zip> [backup.zip]   import with failureRollBack=true; with a backup export of
+#                                       the SAME tenant, its application metadata is added to the package (some
+#                                       tenants, e.g. DEV, fail the import without it; taken from the same tenant it
+#                                       changes nothing there)
 #   scripts/tsvm.sh export   <out.zip>   full journeys export of the tenant (backup / drift)
 # Env: TS_CLIENT_ID, TS_CLIENT_SECRET, TS_TENANT_ID, TS_REGION (sbx | us | eu | ca | au | dev)
 set -euo pipefail
@@ -51,6 +54,22 @@ if [ "$CMD" = export ]; then
 fi
 
 python3 scripts/guard.py "$FILE"
+if [ "$CMD" = import ] && [ -n "${3:-}" ]; then
+  python3 - "$FILE" "$3" <<'EOF'
+import sys, zipfile
+pkg, backup = sys.argv[1:]
+with zipfile.ZipFile(backup) as b:
+    meta = {n: b.read(n) for n in b.namelist() if n.startswith("exported-data/ido/metadata/") and n.endswith(".yaml")}
+if not meta:
+    sys.exit("no application metadata in the backup")
+with zipfile.ZipFile(pkg) as p:
+    items = {n: p.read(n) for n in p.namelist() if n not in meta}
+with zipfile.ZipFile(pkg, "w", zipfile.ZIP_DEFLATED) as p:
+    for n, data in {**items, **meta}.items():
+        p.writestr(n, data)
+print(f"added {len(meta)} metadata files from {backup}")
+EOF
+fi
 case "$CMD" in
   validate) QS="format=zip" ;;
   import)   QS="format=zip&failureRollBack=true" ;;

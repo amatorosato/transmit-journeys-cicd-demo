@@ -32,7 +32,7 @@ jobs:
       - name: Validate
         run: bash scripts/tsvm.sh validate package.zip
       - name: Import (rollback on failure)
-        run: bash scripts/tsvm.sh import package.zip
+        run: bash scripts/tsvm.sh import package.zip backup-${{ inputs.environment }}.zip
       - name: Check the tenant now matches Git
         run: |
           bash scripts/tsvm.sh export after.zip
