@@ -1,0 +1,62 @@
+policy_id: ea71cf3c-5b5a-422f-b16e-039d6e8637d6
+versions:
+  - schema_version: 2
+    filter_criteria:
+      type: expression
+      value:
+        type: expression
+        value: 'true'
+    workflow:
+      id: 9b2cd6fc-fd09-409b-8d6f-3fd093809b2c
+      steps:
+        - data:
+            ui_name: Display Information
+            id: b9168637-494c-4db9-a863-5494c98db916
+            strings: []
+            action:
+              metadata:
+                type: information
+              text:
+                type: expression
+                value: '`Example information text.`'
+              button_text:
+                type: expression
+                value: '`OK`'
+              title:
+                type: expression
+                value: '`Information`'
+              type: information
+              parameters: []
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+        - data:
+            ui_name: Complete Journey
+            id: c4b706e6-fd89-47c4-b06e-5fd89be7c4b7
+            strings: []
+            action:
+              metadata:
+                type: auth_pass
+              type: auth_pass
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+    version_id: default_version
+    state: version
+    desc: default_version
+name: CICD-Login
+created_date: 1793793877377
+type: anonymous
+config:
+  token_create: true
+  session_validate: false
+  enforce_mosaic_token: null
+  session_create: true
+  double_encryption: 'off'
+  token_include_request_params: true
+affinity: b2c
+desc: ''
