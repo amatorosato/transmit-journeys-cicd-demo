@@ -18,7 +18,7 @@ versions:
                 type: information
               text:
                 type: expression
-                value: '`Example information text.`'
+                value: '`Example information text. Edited from GitHub`'
               button_text:
                 type: expression
                 value: '`OK`'
