@@ -20,6 +20,7 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ inputs.region }}
       TS_TENANT_NAME: ${{ inputs.tenant }}
+      TS_STAGE: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml

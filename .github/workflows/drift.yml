@@ -28,6 +28,7 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ matrix.region }}
       TS_TENANT_NAME: ${{ matrix.tenant }}
+      TS_STAGE: ${{ matrix.stage }}
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
