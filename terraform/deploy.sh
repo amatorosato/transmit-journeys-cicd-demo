@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Called by terraform/main.tf on apply. Same steps as the GitHub Deploy workflow.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${TS_CLIENT_ID:?missing: add TS_CLIENT_ID in the HCP workspace as an Environment variable (sensitive)}"
+: "${TS_CLIENT_SECRET:?missing: add TS_CLIENT_SECRET in the HCP workspace as an Environment variable (sensitive)}"
+
+WORK=$(mktemp -d)
+# PyYAML is not installed on the HCP Terraform workers: install it for this run only
+if ! python3 -c 'import yaml' 2>/dev/null; then
+  python3 -m pip install -q --target "$WORK/pylib" pyyaml 2>/dev/null \
+    || python3 -m pip install -q --break-system-packages --target "$WORK/pylib" pyyaml
+  export PYTHONPATH="$WORK/pylib${PYTHONPATH:+:$PYTHONPATH}"
+fi
+
+echo "== Deploying to $TS_TENANT_NAME"
+bash scripts/tsvm.sh build "$WORK/package.zip"
+python3 scripts/guard.py "$WORK/package.zip"
+echo "== Backup of $TS_TENANT_NAME before the change"
+bash scripts/tsvm.sh export "$WORK/backup.zip"
+echo "== Validate"
+bash scripts/tsvm.sh validate "$WORK/package.zip"
+echo "== Import (rollback on failure)"
+bash scripts/tsvm.sh import "$WORK/package.zip" "$WORK/backup.zip"
+echo "== Check that $TS_TENANT_NAME now matches Git"
+bash scripts/tsvm.sh export "$WORK/after.zip"
+python3 scripts/drift.py "$WORK/after.zip"

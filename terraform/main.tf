@@ -1,23 +1,71 @@
-# Step 0: check what the HCP Terraform workers have before we rely on it.
-# Runs during "plan" (data source), so it changes nothing on any tenant.
+# Deploys the journeys in journeys/ to one Transmit tenant (workspace transmit-cicd-demo:
+# amato-rosato-sbx-demo). Transmit has no Terraform provider, so Terraform tracks the journeys
+# and calls the same scripts as the GitHub pipeline (backup, guard, validate, import, check).
+#
+# The plan shows which journeys change. "Confirm & apply" in HCP Terraform is the approval.
 terraform {
-  required_providers {
-    external = { source = "hashicorp/external", version = "~> 2.3" }
+  required_version = ">= 1.5"
+}
+
+# Non-secret settings: workspace "Terraform variables".
+# The credentials TS_CLIENT_ID / TS_CLIENT_SECRET are workspace "Environment variables" (sensitive),
+# so they reach the scripts directly and never pass through the Terraform configuration.
+variable "TS_TENANT_ID" {
+  type        = string
+  description = "Transmit tenant ID"
+}
+
+variable "TS_REGION" {
+  type        = string
+  description = "Transmit region: sbx, us, eu, ca or au"
+}
+
+variable "TS_TENANT_NAME" {
+  type        = string
+  description = "Tenant name, used in the messages"
+}
+
+locals {
+  journeys_dir = "${path.module}/../journeys"
+  # journey name (as in the console) => file and content hash
+  journeys = {
+    for f in fileset(local.journeys_dir, "*.yaml") :
+    yamldecode(file("${local.journeys_dir}/${f}")).name => {
+      file   = "journeys/${f}"
+      sha256 = filesha256("${local.journeys_dir}/${f}")
+    }
   }
 }
 
-data "external" "probe" {
-  program = ["bash", "-c", <<-EOT
-    has() { command -v "$1" >/dev/null 2>&1 && echo yes || echo no; }
-    pyyaml=$(python3 -c 'import yaml' >/dev/null 2>&1 && echo yes || echo no)
-    pyver=$(python3 -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo none)
-    sbx=$(curl -s -o /dev/null -m 10 -w '%%{http_code}' https://api.sbx.transmitsecurity.io/ 2>/dev/null || echo fail)
-    printf '{"curl":"%s","python3":"%s","python_version":"%s","pyyaml":"%s","pip":"%s","zip":"%s","unzip":"%s","reach_sbx_api":"%s"}' \
-      "$(has curl)" "$(has python3)" "$pyver" "$pyyaml" "$(has pip3)" "$(has zip)" "$(has unzip)" "$sbx"
-  EOT
-  ]
+# One entry per journey: the plan lists exactly which journeys are new or changed.
+# Removing a file only drops it from Terraform: the journey stays on the tenant (delete it in the console).
+resource "terraform_data" "journey" {
+  for_each = local.journeys
+  input    = each.value
 }
 
-output "worker_tools" {
-  value = data.external.probe.result
+# The deploy itself: runs again whenever any journey (or the target tenant) changes.
+resource "terraform_data" "deploy" {
+  triggers_replace = [var.TS_TENANT_ID, local.journeys]
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/.."
+    command     = "bash terraform/deploy.sh"
+    environment = {
+      TS_TENANT_ID   = var.TS_TENANT_ID
+      TS_REGION      = var.TS_REGION
+      TS_TENANT_NAME = var.TS_TENANT_NAME
+      TS_STAGE       = "dev"
+    }
+  }
+
+  depends_on = [terraform_data.journey]
+}
+
+output "tenant" {
+  value = var.TS_TENANT_NAME
+}
+
+output "journeys" {
+  value = { for name, j in local.journeys : name => j.file }
 }

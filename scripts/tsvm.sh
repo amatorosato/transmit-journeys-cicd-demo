@@ -21,7 +21,17 @@ if [ "$CMD" = build ]; then
     mkdir -p "$IDO/$dst"; cp "$src"/*.yaml "$IDO/$dst/"
     printf "mode: selective\nnotFound: []\n" > "$IDO/$dst/manifest.yaml"
   done
-  rm -f "$FILE"; (cd "$TMP" && zip -qr - exported-data) > "$FILE"; rm -rf "$TMP"
+  # python's zipfile instead of the zip command (not installed on HCP Terraform workers)
+  rm -f "$FILE"; python3 - "$TMP" "$FILE" <<'EOF'
+import os, sys, zipfile
+root, out = sys.argv[1:]
+with zipfile.ZipFile(os.path.abspath(out), "w", zipfile.ZIP_DEFLATED) as z:
+    for d, _, files in sorted(os.walk(os.path.join(root, "exported-data"))):
+        z.write(d, os.path.relpath(d, root))   # directory entries too, like the zip command
+        for f in sorted(files):
+            z.write(os.path.join(d, f), os.path.relpath(os.path.join(d, f), root))
+EOF
+  rm -rf "$TMP"
   echo "built $FILE"; exit 0
 fi
 
