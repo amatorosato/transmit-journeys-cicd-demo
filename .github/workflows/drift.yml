@@ -1,6 +1,7 @@
 name: Drift check
 
-# Nightly (and on demand): export each tenant and compare the journeys with Git.
+# Nightly (and on demand): export test and prod and compare the journeys with Git.
+# dev is left out on purpose: designers work there, differences are work in progress (Capture from dev).
 # Uses the "<env>-readonly" environments: same tenant, no approval, so the check never waits.
 on:
   schedule:
@@ -9,14 +10,13 @@ on:
 
 jobs:
   drift:
-    runs-on: ${{ fromJSON(matrix.runner) }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { environment: dev, region: dev, runner: '["self-hosted", "transmit-dev"]' }
-          - { environment: sbx-readonly, region: sbx, runner: '"ubuntu-latest"' }
-          - { environment: prod-readonly, region: eu, runner: '"ubuntu-latest"' }
+          - { environment: test-readonly, region: us }
+          - { environment: prod-readonly, region: eu }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
