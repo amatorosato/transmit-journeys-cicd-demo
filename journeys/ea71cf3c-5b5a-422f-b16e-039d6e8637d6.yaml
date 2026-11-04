@@ -11,6 +11,29 @@ versions:
       steps:
         - data:
             ui_name: Display Information
+            id: 60631692-883e-4560-b169-5883ee056063
+            strings: []
+            action:
+              metadata:
+                type: information
+              text:
+                type: expression
+                value: '`Example information text.`'
+              button_text:
+                type: expression
+                value: '`OK`'
+              title:
+                type: expression
+                value: '`Information`'
+              type: information
+              parameters: []
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+        - data:
+            ui_name: Display Information
             id: b9168637-494c-4db9-a863-5494c98db916
             strings: []
             action:
