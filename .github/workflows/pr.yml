@@ -1,6 +1,6 @@
 name: PR check
 
-# Every pull request: build the package, run the safety guard, validate it on the dev tenant.
+# Every pull request: build the package, run the safety guard, validate it on dev (amato-rosato-sbx-demo).
 # Nothing is imported. Mark "validate" as a required status check on main.
 # workflow_dispatch: started by "Capture from dev" on its branch (PRs opened by GITHUB_TOKEN do not
 # trigger pull_request workflows), so the captured PR gets its "validate" check too.
@@ -11,14 +11,13 @@ on:
 
 jobs:
   validate:
-    # the DEV tenant only accepts the corporate network: self-hosted runner
-    runs-on: [self-hosted, transmit-dev]
+    runs-on: ubuntu-latest
     environment: dev
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
-      TS_REGION: dev
+      TS_REGION: sbx
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml

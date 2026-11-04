@@ -5,14 +5,13 @@ Version Management API (export / validate / import). No Terraform, no extra serv
 
 | GitHub environment | Tenant | Role in the demo |
 |---|---|---|
-| `dev` | B2B Core Steps Test Tenant (region `dev`) | development: every PR is validated here, every merge deploys here |
-| `sbx` | amato-rosato-sbx-demo (region `sbx`) | staging: deploy only after approval (required reviewers) |
+| `dev` | amato-rosato-sbx-demo (region `sbx`) | development: designers work here, every PR is validated here, every merge deploys here |
+| `test` | telco-demo-tenant (region `us`) | test: deploy only after approval (required reviewers) |
 | `prod` | Vodafone-CIAM-POC (region `eu`) | **production**: deploy only after a second approval |
-| `sbx-readonly` | same tenant as `sbx`, no approval | used only by the drift check, which never changes the tenant |
+| `test-readonly` | same tenant as `test`, no approval | used only by the drift check, which never changes the tenant |
 | `prod-readonly` | same tenant as `prod`, no approval | used only by the drift check |
 
-The DEV tenant (`api.idsec-dev.com`) only accepts the corporate network, so the `dev` jobs run on a
-**self-hosted runner** (label `transmit-dev`) on a machine inside that network; the `sbx` and `prod` jobs run on GitHub's runners.
+All jobs run on GitHub's runners (the three tenants have public APIs).
 
 ## Repository
 
@@ -32,7 +31,7 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | Workflow | When | What |
 |---|---|---|
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
-| **Deploy** (`deploy.yml`) | merge to `main` | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `sbx`, then waits for a second approval and repeats on `prod`, always with the same commit. |
+| **Deploy** (`deploy.yml`) | merge to `main` | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant, copies the journeys changed in the console into `journeys/` (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`), opens a PR and starts its check. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports each tenant and flags journeys that differ from Git. |
 
@@ -46,12 +45,12 @@ Notes:
 ## Working in the console
 
 Designers can keep using the visual editor **on the dev tenant**:
-1. Edit and test the journey in the dev console (B2B Core Steps Test Tenant).
+1. Edit and test the journey in the dev console (amato-rosato-sbx-demo).
 2. In GitHub: **Actions → Capture from dev → Run workflow** (optionally name new journeys).
 3. Review the pull request it opens (the diff shows exactly what changed in the console), merge it.
-4. The usual deploy takes it to `sbx` and `prod`, each after approval.
+4. The usual deploy takes it to `test` and `prod`, each after approval.
 
-Do not edit `sbx` or `prod` in the console: the drift check flags it and the next deploy overwrites it.
+Do not edit `test` or `prod` in the console: the drift check flags it and the next deploy overwrites it.
 New journeys are captured only when named or when their id starts with the prefix, so the other dev
 journeys stay out of the repo. Deleting a journey is a manual step (the pipeline never deletes).
 
@@ -66,7 +65,7 @@ journeys stay out of the repo. Deleting a journey is a manual step (the pipeline
    the check is red, merge is blocked. Optional: `demo/broken-empty-package` (all journeys deleted by
    mistake) → the guard answers `REFUSED`. *"Errors stop before production."*
 4. **Merge and promotion with approval (5 min).** Merge the good PR. Deploy runs on `dev` (backup, import,
-   verify), then stops on **Review deployments** for `sbx`. Approve, and the same commit reaches `sbx`;
+   verify), then stops on **Review deployments** for `test`. Approve, and the same commit reaches `test`;
    it stops again for `prod`: approve, and it reaches production. Show the new title in the form builder
    or with the console's *Test journey*. *"Separation of duties, audit trail, one artifact."*
 5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder on

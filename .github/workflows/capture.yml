@@ -23,14 +23,13 @@ permissions:
 
 jobs:
   capture:
-    # the DEV tenant only accepts the corporate network: self-hosted runner
-    runs-on: [self-hosted, transmit-dev]
+    runs-on: ubuntu-latest
     environment: dev
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
-      TS_REGION: dev
+      TS_REGION: sbx
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
@@ -55,7 +54,7 @@ jobs:
           CHANGED=$(git diff --cached --name-only | sed 's|^journeys/||; s|\.yaml$||' | paste -sd, - | sed 's/,/, /g')
           git commit -q -m "Capture from dev: $CHANGED"
           git push -q origin "$BRANCH"
-          BODY="Journeys changed in the dev console (B2B Core Steps Test Tenant), captured by @${{ github.actor }}: $CHANGED"
+          BODY="Journeys changed in the dev console (amato-rosato-sbx-demo), captured by @${{ github.actor }}: $CHANGED"
           python3 - "$BRANCH" "$CHANGED" "$BODY" > pr.json <<'EOF'
           import json, sys
           b, changed, body = sys.argv[1:]
