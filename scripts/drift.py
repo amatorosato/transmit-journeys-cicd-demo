@@ -1,7 +1,7 @@
 """Compare the journeys in Git with what is live on the tenant.
 Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
-Optional env: TS_TENANT_NAME (used in the messages), PENDING_DEPLOY (URL of a deploy waiting for
+Optional env: TS_STAGE (test, production…: messages say "the test tenant"), TS_TENANT_NAME (used when no stage), PENDING_DEPLOY (URL of a deploy waiting for
 approval), GITHUB_STEP_SUMMARY (set by GitHub Actions: a summary table is written there).
 """
 import difflib
@@ -37,7 +37,8 @@ def label(doc, fname):
 
 
 def main(export_zip):
-    tenant = os.environ.get("TS_TENANT_NAME") or "the tenant"
+    stage = os.environ.get("TS_STAGE")
+    tenant = f"the {stage} tenant" if stage else os.environ.get("TS_TENANT_NAME") or "the tenant"
     pending = os.environ.get("PENDING_DEPLOY")
     z = zipfile.ZipFile(export_zip)
     live = {n.rsplit("/", 1)[1]: n for n in z.namelist() if "/ido/journeys/" in n and n.endswith(".yaml")}
