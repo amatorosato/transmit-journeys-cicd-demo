@@ -10,7 +10,7 @@ on:
 
 jobs:
   drift:
-    name: Drift on ${{ matrix.tenant }}
+    name: Drift on ${{ matrix.stage }} tenant
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -19,8 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { environment: test-readonly, region: us, tenant: telco-demo-tenant }
-          - { environment: prod-readonly, region: eu, tenant: Vodafone-CIAM-POC }
+          - { stage: test, environment: test-readonly, region: us, tenant: telco-demo-tenant }
+          - { stage: production, environment: prod-readonly, region: eu, tenant: Vodafone-CIAM-POC }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
