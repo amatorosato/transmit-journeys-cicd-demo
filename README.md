@@ -42,6 +42,16 @@ Notes:
 - Imports are always **selective**: only the journeys in the package are touched.
 - The backup of each tenant is kept as a workflow artifact for 90 days.
 
+## Terraform (HCP Terraform)
+
+`terraform/` deploys the journeys with HCP Terraform (organization `amato-transmit-demo`, workspace `transmit-cicd-demo`, target amato-rosato-sbx-demo). Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import, check).
+
+- **Pull request:** HCP runs a speculative plan and reports it as a check on the PR: it lists the journeys that are new or changed.
+- **Merge to `main`:** HCP plans again and waits. **Confirm & apply** is the approval; the apply imports the journeys.
+- Workspace settings: execution mode Remote, Manual apply, working directory `terraform`, VCS trigger paths `terraform/**` and `journeys/**`.
+- Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables.
+- Removing a journey file does not delete the journey on the tenant (delete it in the console).
+
 ## Working in the console
 
 Designers can keep using the visual editor **on the dev tenant**:
