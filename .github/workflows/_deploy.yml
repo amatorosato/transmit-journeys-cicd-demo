@@ -6,17 +6,20 @@ on:
     inputs:
       environment: { required: true, type: string }
       region:      { required: true, type: string }
+      tenant:      { required: true, type: string }   # tenant name, for the messages
 
 jobs:
   deploy:
-    # the DEV tenant only accepts the corporate network: self-hosted runner; other regions use GitHub's
-    runs-on: ${{ fromJSON(inputs.region == 'dev' && '["self-hosted", "transmit-dev"]' || '"ubuntu-latest"') }}
+    name: Deploy to ${{ inputs.tenant }}
+    # pinned image: no "ubuntu-latest will migrate" notice; bump it on purpose
+    runs-on: ubuntu-24.04
     environment: ${{ inputs.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ inputs.region }}
+      TS_TENANT_NAME: ${{ inputs.tenant }}
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml

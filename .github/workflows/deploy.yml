@@ -16,15 +16,15 @@ concurrency:
 jobs:
   dev:
     uses: ./.github/workflows/_deploy.yml
-    with: { environment: dev, region: sbx }
+    with: { environment: dev, region: sbx, tenant: amato-rosato-sbx-demo }
     secrets: inherit
   test:
     needs: dev
     uses: ./.github/workflows/_deploy.yml
-    with: { environment: test, region: us }
+    with: { environment: test, region: us, tenant: telco-demo-tenant }
     secrets: inherit
   prod:
     needs: test
     uses: ./.github/workflows/_deploy.yml
-    with: { environment: prod, region: eu }
+    with: { environment: prod, region: eu, tenant: Vodafone-CIAM-POC }
     secrets: inherit

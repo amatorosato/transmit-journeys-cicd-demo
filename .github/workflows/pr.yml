@@ -11,13 +11,14 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: dev
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: sbx
+      TS_TENANT_NAME: amato-rosato-sbx-demo
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
