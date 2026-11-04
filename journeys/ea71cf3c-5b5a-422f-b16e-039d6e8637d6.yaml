@@ -33,6 +33,29 @@ versions:
                 should_customize_report: false
             type: action
         - data:
+            ui_name: Display Information
+            id: e5a4dd01-0f2b-49e5-8dd0-50f2bfb9e5a4
+            strings: []
+            action:
+              metadata:
+                type: information
+              text:
+                type: expression
+                value: '`Example information text.`'
+              button_text:
+                type: expression
+                value: '`OK`'
+              title:
+                type: expression
+                value: '`Information`'
+              type: information
+              parameters: []
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+        - data:
             ui_name: Complete Journey
             id: c4b706e6-fd89-47c4-b06e-5fd89be7c4b7
             strings: []
