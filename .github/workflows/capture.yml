@@ -1,0 +1,71 @@
+name: Capture from dev
+
+# Designers edit journeys in the dev console; this brings their work into Git as a pull request.
+# Exports the dev tenant, updates journeys/ (journeys already in Git + the ones named + the ones with the
+# prefix), opens a PR and starts its "validate" check. From there: review, merge, approvals, promotion.
+# Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
+on:
+  workflow_dispatch:
+    inputs:
+      journeys:
+        description: "Extra journey ids to capture, comma separated (optional)"
+        required: false
+        default: ""
+      prefix:
+        description: "Also capture every journey whose id starts with"
+        required: false
+        default: "CICD-"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  capture:
+    # the DEV tenant only accepts the corporate network: self-hosted runner
+    runs-on: [self-hosted, transmit-dev]
+    environment: dev
+    env:
+      TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
+      TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
+      TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
+      TS_REGION: dev
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
+      - name: Export dev tenant
+        run: bash scripts/tsvm.sh export dev.zip
+      - name: Update journeys/ from the export
+        run: python3 scripts/capture.py dev.zip --journeys "${{ inputs.journeys }}" --prefix "${{ inputs.prefix }}"
+      - name: Open a pull request
+        run: |
+          rm -f dev.zip
+          if [ -z "$(git status --porcelain journeys)" ]; then
+            echo "No changes: dev matches Git." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          BRANCH="capture/dev-${{ github.run_id }}"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add journeys
+          CHANGED=$(git diff --cached --name-only | sed 's|^journeys/||; s|\.yaml$||' | paste -sd, - | sed 's/,/, /g')
+          git commit -q -m "Capture from dev: $CHANGED"
+          git push -q origin "$BRANCH"
+          BODY="Journeys changed in the dev console (B2B Core Steps Test Tenant), captured by @${{ github.actor }}: $CHANGED"
+          python3 - "$BRANCH" "$CHANGED" "$BODY" > pr.json <<'EOF'
+          import json, sys
+          b, changed, body = sys.argv[1:]
+          print(json.dumps({"title": f"Capture from dev: {changed}", "head": b, "base": "main", "body": body}))
+          EOF
+          URL=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/pulls" --data @pr.json \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["html_url"])')
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows: start the check explicitly
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/pr.yml/dispatches" \
+            -d "{\"ref\": \"$BRANCH\"}"
+          echo "Pull request: $URL" | tee -a "$GITHUB_STEP_SUMMARY"
