@@ -10,23 +10,33 @@ on:
 
 jobs:
   drift:
-    runs-on: ubuntu-latest
+    name: Drift on ${{ matrix.tenant }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read   # to spot a deploy waiting for approval
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { environment: test-readonly, region: us }
-          - { environment: prod-readonly, region: eu }
+          - { environment: test-readonly, region: us, tenant: telco-demo-tenant }
+          - { environment: prod-readonly, region: eu, tenant: Vodafone-CIAM-POC }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ matrix.region }}
+      TS_TENANT_NAME: ${{ matrix.tenant }}
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export tenant
         run: bash scripts/tsvm.sh export live.zip
+      - name: Deploy waiting for approval?
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          url=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy.yml --status waiting --limit 1 --json url -q '.[0].url' || true)
+          echo "PENDING_DEPLOY=$url" >> "$GITHUB_ENV"
       - name: Compare with Git
         run: python3 scripts/drift.py live.zip
