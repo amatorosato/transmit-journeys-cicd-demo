@@ -1,8 +1,9 @@
 """Compare the journeys in Git with what is live on the tenant.
 Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
-Git always wins: a journey that differs is put back by a restore run in HCP Terraform (queued by the drift
-workflow, applied after Confirm & apply).
+Git always wins: when a journey differs, the drift workflow opens a restore pull request; once merged, HCP
+Terraform deploys the Git version again on that tenant (after Confirm & apply).
+DRIFT_REPORT (optional): markdown file with the journeys that differ and their diff, for the pull request.
 Optional env: TS_STAGE (dev, test, prod: messages say "the test tenant"), GITHUB_STEP_SUMMARY (set by GitHub
 Actions: a summary table is written there).
 """
@@ -47,7 +48,8 @@ def main(export_zip):
     stage = {"production": "prod"}.get(os.environ.get("TS_STAGE", ""), os.environ.get("TS_STAGE"))
     tenant = f"the {stage} tenant" if stage else "the tenant"
     workspace = f"transmit-{stage}" if stage else "the Terraform workspace"
-    fix = f"Confirm & apply the restore run in {workspace}: it puts the Git version back"
+    fix = f"Merge the restore pull request, then Confirm & apply in {workspace}: the Git version is put back"
+    report = []
     z = zipfile.ZipFile(export_zip)
     live = {n.rsplit("/", 1)[1]: n for n in z.namelist() if "/ido/journeys/" in n and n.endswith(".yaml")}
     rows = []
@@ -70,6 +72,9 @@ def main(export_zip):
               f"{name} on {tenant} differs from Git (edited in the console, or the latest version is not applied "
               f"yet). {fix}. The diff is in the log.")
         rows.append((name, "❌ differs from Git", fix))
+        diff = list(difflib.unified_diff(want, have, "git/" + fname, "tenant/" + fname, lineterm=""))
+        report.append(f"#### {name}\n\n```diff\n" + "\n".join(diff[:200]) +
+                      ("\n… (diff truncated)" if len(diff) > 200 else "") + "\n```\n")
         print(f"--- what changed on {tenant} (- Git, + {tenant}) ---")
         sys.stdout.writelines(l + "\n" for l in difflib.unified_diff(want, have, "git/" + fname, "tenant/" + fname,
                                                                    lineterm=""))
@@ -78,6 +83,10 @@ def main(export_zip):
         with open(summary, "a") as f:
             f.write(f"### Journeys on {tenant} compared with Git\n\n| Journey | Status | What to do |\n|---|---|---|\n")
             f.writelines(f"| {n} | {st} | {fx} |\n" for n, st, fx in rows)
+    if os.environ.get("DRIFT_REPORT"):
+        missing = [n for n, st, _ in rows if st.startswith("❌ not deployed")]
+        with open(os.environ["DRIFT_REPORT"], "w") as f:
+            f.write("".join(report) + "".join(f"#### {n}\n\nIn Git, not on {tenant}.\n" for n in missing))
     sys.exit(0 if all(st.startswith("✅") for _, st, _ in rows) else 1)
 
 

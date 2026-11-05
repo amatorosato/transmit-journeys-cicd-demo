@@ -73,6 +73,11 @@ locals {
     }
   }
   versions = { for name, j in local.journeys : name => sha256(j.content) }
+
+  # Restore requests written by the drift check through a pull request: {"prod": "<when>"}.
+  # A new value for this stage forces the deploy again, which puts the Git version back on the tenant.
+  stage   = replace(var.TS_STAGE, "production", "prod")
+  restore = lookup(jsondecode(file("${path.module}/restore.json")), local.stage, "")
 }
 
 # One entry per journey: the plan lists the journeys that are new or changed, with the changed lines.
@@ -84,7 +89,8 @@ resource "terraform_data" "journey" {
 
 # The deploy itself: runs again whenever any journey (or the target tenant) changes.
 resource "terraform_data" "deploy" {
-  triggers_replace = [var.TS_TENANT_ID, local.versions]
+  # without a restore request the triggers stay as they were, so adding restore.json changes nothing
+  triggers_replace = concat([var.TS_TENANT_ID, local.versions], [for r in [local.restore] : r if r != ""])
 
   lifecycle {
     precondition {
