@@ -10,6 +10,29 @@ versions:
       id: efedb7b9-8cbd-5b88-bbcd-cd58deb84aa3
       steps:
         - data:
+            ui_name: Display Information
+            id: 24581ae6-9c08-4b24-81ae-29c0846b2458
+            strings: []
+            action:
+              metadata:
+                type: information
+              text:
+                type: expression
+                value: '`test`'
+              button_text:
+                type: expression
+                value: '`OK`'
+              title:
+                type: expression
+                value: '`Information`'
+              type: information
+              parameters: []
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+        - data:
             ui_name: Set Temporary Variables
             id: c5d96b10-d3a3-5459-9f59-18f3026ced2d
             strings: []
