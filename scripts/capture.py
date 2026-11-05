@@ -7,9 +7,8 @@ ones named with --connections (name or id), and every connection used by a journ
 functions are called by name: `ns: webrequests`, `function: <name>`; other connections by their id).
 Files are written exactly as exported (minus last_modified_date), so they match what the drift check compares.
 Soft delete: a journey in Git that is no longer on the tenant (deleted in the dev console) is not removed from Git:
-its file becomes a tombstone: renamed DELETED-<name> and disabled (every version's filter_criteria set to 'false', so
-no version applies and calls fail; verified on the sandbox). Only those lines change. Once merged, it is promoted
-dev -> test -> prod like any change, so the journey is renamed and disabled on every tenant instead of deleted. Connections in Git
+its file becomes a tombstone renamed DELETED-<name> (only the `name:` line changes; the journey stays active). Once
+merged, it is promoted dev -> test -> prod like any change, so the journey is renamed on every tenant instead of deleted. Connections in Git
 but missing on the tenant are reported, never deleted. Secrets are not exported: connections refer to
 credentials by alias, which must exist on every tenant the connection is deployed to; they are listed in --notes.
 Usage: python3 scripts/capture.py <export.zip> [--journeys "A,B"] [--prefix CICD-] [--connections "X,Y"]
@@ -72,14 +71,9 @@ for j in sorted(wanted):
         name = (yaml.safe_load(text) or {}).get("name") or j
         if m and not name.startswith(PREFIX_DELETED):
             text = text[:m.start()] + "name: " + yaml.safe_dump(PREFIX_DELETED + name).split("\n")[0] + text[m.end():]
-            # disable: no version applies any more (filter_criteria false)
-            text, n = re.subn(r"(filter_criteria:\n(\s+)type: expression\n\2value:\n\s+type: expression\n\s+value: )(.+)",
-                              r"\1'false'", text)
-            if not n:
-                print(f"::warning::{path}: filter_criteria not found, renamed but not disabled")
             open(path, "w").write(text)
             deleted.append((name, PREFIX_DELETED + name))
-            print(f"deleted {path}: not on the tenant any more, renamed {PREFIX_DELETED}{name} and disabled (soft delete)")
+            print(f"deleted {path}: not on the tenant any more, renamed {PREFIX_DELETED}{name} (soft delete)")
         continue
     write(f"journeys/{j}.yaml", z.read(live[j]).decode())
 
@@ -125,11 +119,10 @@ if a.notes:
         if deleted:
             f.write("**Deleted in the dev tenant console:** " + ", ".join(o for o, _ in deleted) + ". They are not deleted "
                     "anywhere: each one is renamed with the prefix `DELETED-` (" + ", ".join(n for _, n in deleted) +
-                    ") and **disabled** (`filter_criteria` false: no version applies, calls to it fail). After the merge "
-                    "this is promoted like any change: the dev tenant gets the renamed journey back, then the test and "
-                    "prod tenants after Confirm & apply. To bring one back, remove the prefix and set `filter_criteria` "
-                    "to `'true'` in a pull request. To remove it for good, delete it in each tenant console and remove "
-                    "its file from Git.\n\n")
+                    "). The journey stays active: apps calling it by id still run it. After the merge the rename is promoted "
+                    "like any change: the dev tenant gets the renamed journey back, then the test and prod tenants after "
+                    "Confirm & apply. To bring one back, remove the prefix in a pull request. To remove it for good, "
+                    "delete it in each tenant console and remove its file from Git.\n\n")
         names = [conns[c]["name"] for c in sorted(wanted_c) if c in conns]
         if names:
             f.write("**External connections in Git:** " + ", ".join(names) + "\n\n")
