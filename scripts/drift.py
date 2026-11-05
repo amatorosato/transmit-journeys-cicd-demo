@@ -34,8 +34,9 @@ def norm(doc):
 
 
 def label(doc, fname):
-    """Journey name as shown in the console, plus the file when the name is not the file name."""
-    name = (doc or {}).get("name") or fname[:-5]
+    """Name as shown in the console (journey name, or connection name), plus the file when they differ."""
+    doc = doc or {}
+    name = doc.get("name") or (doc.get("data") or {}).get("name") or fname[:-5]
     return name if fname == name + ".yaml" else f"{name} ({fname})"
 
 
@@ -51,19 +52,24 @@ def main(export_zip):
     fix = f"Merge the restore pull request, then Confirm & apply in {workspace}: the Git version is put back"
     report = []
     z = zipfile.ZipFile(export_zip)
-    live = {n.rsplit("/", 1)[1]: n for n in z.namelist() if "/ido/journeys/" in n and n.endswith(".yaml")}
+    # journeys/ <-> ido/journeys, connections/ <-> ido/external-connections
+    live = {}
+    for n in z.namelist():
+        for git_dir, tenant_dir in (("journeys", "/ido/journeys/"), ("connections", "/ido/external-connections/")):
+            if tenant_dir in n and n.endswith(".yaml") and not n.endswith("/manifest.yaml"):
+                live[f"{git_dir}/{n.rsplit('/', 1)[1]}"] = n
     rows = []
-    for path in sorted(glob.glob("journeys/*.yaml")):
+    for path in sorted(glob.glob("journeys/*.yaml")) + sorted(glob.glob("connections/*.yaml")):
         fname = os.path.basename(path)
         doc = yaml.safe_load(open(path))
         name = label(doc, fname)
-        short = (doc or {}).get("name") or fname[:-5]
-        if fname not in live:
+        short = (doc or {}).get("name") or ((doc or {}).get("data") or {}).get("name") or fname[:-5]
+        if path not in live:
             error(f"{short} is not deployed on {tenant}", f"{name} is in Git but not on {tenant}. {fix}.")
             rows.append((name, "❌ not deployed yet", fix))
             continue
         want = norm(doc)
-        have = norm(yaml.safe_load(z.read(live[fname])))
+        have = norm(yaml.safe_load(z.read(live[path])))
         if want == have:
             print(f"OK    {name}: {tenant} matches Git")
             rows.append((name, "✅ matches Git", ""))

@@ -77,6 +77,17 @@ locals {
   }
   versions = { for name, j in local.journeys : name => sha256(j.content) }
 
+  # external connections (connections/<provider_id>.yaml, from Capture from dev): connection name => file
+  connections_dir = "${path.module}/../connections"
+  connections = {
+    for f in fileset(local.connections_dir, "*.yaml") :
+    yamldecode(file("${local.connections_dir}/${f}")).data.name => {
+      file    = "connections/${f}"
+      content = file("${local.connections_dir}/${f}")
+    }
+  }
+  connection_versions = { for name, c in local.connections : name => sha256(c.content) }
+
   # Restore requests written by the drift check through a pull request: terraform/restore/<stage>
   # holds the time of the last request (one file per tenant, so two restore pull requests never conflict).
   # A new value for this stage forces the deploy again, which puts the Git version back on the tenant.
@@ -93,6 +104,21 @@ data "external" "journey_fields" {
   query    = { journey = jsonencode(yamldecode(each.value.content)) }
 }
 
+# The same for external connections: "config › web_request › uri › value = …"
+data "external" "connection_fields" {
+  for_each = local.connections
+  program  = ["python3", "${path.module}/flatten.py"]
+  query    = { connection = jsonencode(yamldecode(each.value.content)) }
+}
+
+resource "terraform_data" "connection" {
+  for_each = local.connections
+  triggers_replace = {
+    file   = each.value.file
+    fields = data.external.connection_fields[each.key].result
+  }
+}
+
 # One entry per journey: the plan lists the journeys that are new or changed, and the fields that change.
 # Removing a file only drops it from Terraform: the journey stays on the tenant (delete it in the console).
 resource "terraform_data" "journey" {
@@ -106,7 +132,13 @@ resource "terraform_data" "journey" {
 # The deploy itself: runs again whenever any journey (or the target tenant) changes.
 resource "terraform_data" "deploy" {
   # without a restore request the triggers stay as they were, so adding restore.json changes nothing
-  triggers_replace = concat([var.TS_TENANT_ID, local.versions], [for r in [local.restore] : r if r != ""])
+  # connections and restore requests are added only when present, so the triggers of a tenant without them
+  # stay exactly as before
+  triggers_replace = concat(
+    [var.TS_TENANT_ID, local.versions],
+    [for c in [local.connection_versions] : c if length(c) > 0],
+    [for r in [local.restore] : r if r != ""],
+  )
 
   lifecycle {
     precondition {
@@ -130,7 +162,7 @@ resource "terraform_data" "deploy" {
     }
   }
 
-  depends_on = [terraform_data.journey]
+  depends_on = [terraform_data.journey, terraform_data.connection]
 }
 
 output "tenant" {

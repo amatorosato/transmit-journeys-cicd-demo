@@ -1,7 +1,7 @@
 """Turn a journey into readable "path = value" lines for the Terraform plan.
 
-Called by data "external" in main.tf with {"journey": "<the journey as JSON>"} on stdin; prints a flat JSON map of
-strings. The plan then shows only the fields that change, e.g.
+Called by data "external" in main.tf with {"journey": "<the journey as JSON>"} (or {"connection": …} for an
+external connection) on stdin; prints a flat JSON map of strings. The plan then shows only the fields that change, e.g.
   ~ "Display Information #a57b0299 › action › title" = "`Signed in`" -> "`Welcome back`"
 Forms (form_schema) are split per field: "Collect Information #… › form › title1 › label".
 Standard library only: it runs on the HCP Terraform workers during plan.
@@ -82,4 +82,10 @@ def flatten(journey):
 
 if __name__ == "__main__":
     query = json.load(sys.stdin)
-    json.dump(flatten(json.loads(query["journey"])), sys.stdout, ensure_ascii=False)
+    if "connection" in query:
+        doc, out = json.loads(query["connection"]), {}
+        walk(doc.get("data") or {}, [], out)
+        walk({k: v for k, v in doc.items() if k != "data"}, ["export"], out)
+    else:
+        out = flatten(json.loads(query["journey"]))
+    json.dump(out, sys.stdout, ensure_ascii=False)
