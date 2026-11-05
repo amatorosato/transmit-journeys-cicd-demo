@@ -35,19 +35,47 @@ variable "TS_STAGE" {
   }
 }
 
+# Promotion gate (test and production only): the tenant of the previous stage must already have
+# exactly this version, otherwise the apply is refused. Its credentials PREV_TS_CLIENT_ID /
+# PREV_TS_CLIENT_SECRET are workspace Environment variables (sensitive), like the main ones.
+variable "PREV_TS_TENANT_ID" {
+  type        = string
+  default     = ""
+  description = "Tenant ID of the previous stage (empty on dev)"
+}
+
+variable "PREV_TS_REGION" {
+  type        = string
+  default     = ""
+  description = "Region of the previous stage's tenant"
+}
+
+variable "PREV_TS_TENANT_NAME" {
+  type        = string
+  default     = ""
+  description = "Name of the previous stage's tenant"
+}
+
+variable "PREV_TS_STAGE" {
+  type        = string
+  default     = ""
+  description = "Previous stage: dev for test, test for production"
+}
+
 locals {
   journeys_dir = "${path.module}/../journeys"
-  # journey name (as in the console) => file and content hash
+  # journey name (as in the console) => file and content; the plan shows the changed lines
   journeys = {
     for f in fileset(local.journeys_dir, "*.yaml") :
     yamldecode(file("${local.journeys_dir}/${f}")).name => {
-      file   = "journeys/${f}"
-      sha256 = filesha256("${local.journeys_dir}/${f}")
+      file    = "journeys/${f}"
+      content = file("${local.journeys_dir}/${f}")
     }
   }
+  versions = { for name, j in local.journeys : name => sha256(j.content) }
 }
 
-# One entry per journey: the plan lists exactly which journeys are new or changed.
+# One entry per journey: the plan lists the journeys that are new or changed, with the changed lines.
 # Removing a file only drops it from Terraform: the journey stays on the tenant (delete it in the console).
 resource "terraform_data" "journey" {
   for_each = local.journeys
@@ -56,7 +84,14 @@ resource "terraform_data" "journey" {
 
 # The deploy itself: runs again whenever any journey (or the target tenant) changes.
 resource "terraform_data" "deploy" {
-  triggers_replace = [var.TS_TENANT_ID, local.journeys]
+  triggers_replace = [var.TS_TENANT_ID, local.versions]
+
+  lifecycle {
+    precondition {
+      condition     = var.TS_STAGE == "dev" || var.PREV_TS_TENANT_ID != ""
+      error_message = "The ${var.TS_STAGE} workspace needs the promotion gate: set PREV_TS_TENANT_ID, PREV_TS_REGION, PREV_TS_TENANT_NAME, PREV_TS_STAGE (Terraform variables) and PREV_TS_CLIENT_ID, PREV_TS_CLIENT_SECRET (Environment variables)."
+    }
+  }
 
   provisioner "local-exec" {
     working_dir = "${path.module}/.."
@@ -66,6 +101,10 @@ resource "terraform_data" "deploy" {
       TS_REGION      = var.TS_REGION
       TS_TENANT_NAME = var.TS_TENANT_NAME
       TS_STAGE       = var.TS_STAGE
+      PREV_TS_TENANT_ID   = var.PREV_TS_TENANT_ID
+      PREV_TS_REGION      = var.PREV_TS_REGION
+      PREV_TS_TENANT_NAME = var.PREV_TS_TENANT_NAME
+      PREV_TS_STAGE       = var.PREV_TS_STAGE
     }
   }
 

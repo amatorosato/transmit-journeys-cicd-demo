@@ -54,10 +54,11 @@ Deploys are done by HCP Terraform (organization `amato-transmit-demo`). The same
 
 Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import with rollback, check that the tenant matches Git).
 
-- **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant.
-- **Merge to `main`:** each workspace plans and waits. **Confirm & apply** is the approval. Apply in order: `transmit-dev`, then `transmit-test`, then `transmit-prod` (HCP does not enforce the order).
-- Workspace settings: execution mode Remote, Manual apply, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
-- Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables.
+- **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, with the changed lines.
+- **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply). `transmit-test` and `transmit-prod` plan and wait: **Confirm & apply** is the approval.
+- **Promotion gate:** before importing, `transmit-test` checks that amato-rosato-sbx-demo already has exactly this version, and `transmit-prod` checks telco-demo-tenant. If not, the apply is refused (*Apply transmit-dev first*), so the order dev → test → prod is enforced.
+- Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
+- Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables. On `transmit-test` and `transmit-prod`, the same for the previous stage with the `PREV_` prefix (`PREV_TS_TENANT_ID`, …, `PREV_TS_CLIENT_SECRET`).
 - Removing a journey file does not delete the journey on the tenant (delete it in the console).
 
 ## Working in the console
@@ -84,8 +85,10 @@ journeys stay out of the repo. Deleting a journey is a manual step (the pipeline
    the check is red, merge is blocked. Optional: `demo/broken-empty-package` (all journeys deleted by
    mistake) → the guard answers `REFUSED`. *"Errors stop before production."*
 4. **Merge and promotion with approval (5 min).** Merge the good PR. In HCP Terraform, the three
-   workspaces plan the same commit and wait. **Confirm & apply** on `transmit-dev` (backup, import,
-   verify), then on `transmit-test`, then on `transmit-prod`. Show the new title in the form builder
+   workspaces plan the same commit: `transmit-dev` applies by itself (backup, import, verify) and the
+   plans of `transmit-test` and `transmit-prod` show the changed lines. **Confirm & apply** on
+   `transmit-test`, then on `transmit-prod`. Optional: confirm `transmit-prod` first and show the refusal
+   (*Apply transmit-test first*). Show the new title in the form builder
    or with the console's *Test journey*. *"Your Terraform pipeline, your approvals, one artifact."*
 5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder on
    `prod`, then run **Drift check** manually: the `prod-readonly` job is red and shows the changed line.
