@@ -94,7 +94,7 @@ versions:
     version_id: default_version
     state: version
     desc: default_version
-name: CICD-Login
+name: DELETED-CICD-Login
 created_date: 1793793877377
 type: anonymous
 config:
