@@ -33,7 +33,7 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
 | **Deploy (manual fallback)** (`deploy.yml`) | on demand only (deploys are done by HCP Terraform) | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant, copies the journeys changed in the console into `journeys/` (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`), opens a PR and starts its check. |
-| **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it opens a **restore pull request** (`restore/<stage>-tenant`, updated while open) with the diff. It only changes `terraform/restore.json`: once merged, `transmit-<stage>` deploys the Git version again (Confirm & apply), the other workspaces plan no changes. |
+| **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it opens a **restore pull request** (`restore/<stage>-tenant`, updated while open) with the diff. It only changes `terraform/restore/<stage>`: once merged, `transmit-<stage>` deploys the Git version again (Confirm & apply), the other workspaces plan no changes. |
 
 Notes:
 - Transmit's validate answers HTTP 201 even when it finds problems; the scripts read `status` in the body.
@@ -60,7 +60,7 @@ Transmit has no Terraform provider: Terraform tracks one entry per journey and, 
 - Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
 - Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables. On `transmit-test` and `transmit-prod`, the same for the previous stage with the `PREV_` prefix (`PREV_TS_TENANT_ID`, …, `PREV_TS_CLIENT_SECRET`).
 - Removing a journey file does not delete the journey on the tenant (delete it in the console).
-- `terraform/restore.json` holds restore requests (`{"prod": "<when>"}`), written by the drift check's restore pull request. A new value for a stage forces the deploy again on that stage only.
+- `terraform/restore/<stage>` (`test`, `prod`) holds the time of the last restore request, written by the drift check's restore pull request. A new value forces the deploy again on that stage only. One file per tenant, so two restore pull requests never conflict.
 
 ## Working in the console
 
