@@ -2,25 +2,23 @@ name: Drift check
 
 # Nightly (and on demand): export the test and prod tenants and compare the journeys with Git.
 # The dev tenant is left out on purpose: designers work there (Capture from dev).
-# A journey that differs is either an older version from Git (the latest is not applied yet: apply it in
-# HCP Terraform) or an edit made in the console: then a pull request with the tenant's version is opened
-# (one per tenant, updated if still open). Merge it to keep the change (it is promoted dev -> test -> prod
-# as usual), or close it and re-apply in HCP Terraform to put the Git version back.
+# Git always wins: when a tenant differs (edited in the console, or the latest version not applied), the
+# check queues a restore run in its HCP Terraform workspace (transmit-test / transmit-prod). The run forces
+# the deploy of the Git version and waits for Confirm & apply, like every other change.
+# Needs the repository secret TF_API_TOKEN (HCP Terraform API token).
 # Uses the "<env>-readonly" environments: same tenant, no approval, so the check never waits.
-# Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
 on:
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   drift:
     name: Drift on ${{ matrix.stage }} tenant
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write        # push the drift/<stage>-tenant branch
-      pull-requests: write   # open the pull request
-      actions: write         # start its "validate" check
     strategy:
       fail-fast: false
       matrix:
@@ -34,57 +32,52 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ matrix.region }}
       TS_STAGE: ${{ matrix.stage }}
-      DRIFT_EDITED: drift-edited.tsv   # in the workspace, never committed (only journeys/ is)
+      TFC_ORG: amato-transmit-demo
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0   # full history: tells an older version from a console edit
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export tenant
         run: bash scripts/tsvm.sh export "$RUNNER_TEMP/live.zip"
       - name: Compare with Git
         run: python3 scripts/drift.py "$RUNNER_TEMP/live.zip"
-      - name: Open a pull request with the console edits
+      - name: Queue a restore run in HCP Terraform
         if: failure()
         env:
-          GH_TOKEN: ${{ github.token }}
+          TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
         run: |
-          [ -s "$DRIFT_EDITED" ] || { echo "No console edits: no pull request."; exit 0; }
-          IDS=$(cut -f1 "$DRIFT_EDITED" | sed 's/\.yaml$//' | paste -sd, -)
-          NAMES=$(cut -f2 "$DRIFT_EDITED" | paste -sd, - | sed 's/,/, /g')
-          python3 scripts/capture.py "$RUNNER_TEMP/live.zip" --journeys "$IDS" --only
-          BRANCH="drift/$TS_STAGE-tenant"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -q -B "$BRANCH"
-          git add journeys
-          git commit -q -m "Drift on the $TS_STAGE tenant: $NAMES edited in the console"
-          git push -q -f origin "$BRANCH"
-          API="https://api.github.com/repos/${{ github.repository }}"
-          OPEN=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-                 "$API/pulls?state=open&head=${{ github.repository_owner }}:$BRANCH" \
-                 | python3 -c 'import sys,json;p=json.load(sys.stdin);print(p[0]["html_url"] if p else "")')
-          if [ -n "$OPEN" ]; then
-            URL=$OPEN; echo "Pull request already open, updated: $URL"
-          else
-            python3 - "$BRANCH" "$NAMES" "$TS_STAGE" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" > pr.json <<'PY'
-          import json, sys
-          branch, names, stage, run = sys.argv[1:]
-          body = f"""The drift check found journeys **edited in the console of the {stage} tenant**: {names}.
-          This pull request brings the {stage} tenant's version into Git ([drift check run]({run})).
-
-          - **Merge** to keep the change. It is then promoted as usual: the dev tenant applies by itself, then Confirm & apply in `transmit-test` and `transmit-prod`.
-          - **Close** to undo the change: in HCP Terraform, start a new run in `transmit-{stage}` and Confirm & apply. The Git version goes back on the {stage} tenant.
-
-          While this pull request is open, the nightly drift check updates it instead of opening a new one."""
-          print(json.dumps({"title": f"Drift on the {stage} tenant: {names} edited in the console",
-                            "head": branch, "base": "main", "body": body}))
-          PY
-            URL=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" "$API/pulls" --data @pr.json \
-                  | python3 -c 'import sys,json;print(json.load(sys.stdin)["html_url"])')
-            echo "Pull request opened: $URL"
+          WS_NAME="transmit-$TS_STAGE"
+          UI="https://app.terraform.io/app/$TFC_ORG/workspaces/$WS_NAME/runs"
+          if [ -z "$TF_API_TOKEN" ]; then
+            echo "::error title=TF_API_TOKEN not set::Cannot queue the restore run. Add the repository secret TF_API_TOKEN, or in $WS_NAME start a run that replaces terraform_data.deploy."
+            exit 1
           fi
-          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows: start the check explicitly
-          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" "$API/actions/workflows/pr.yml/dispatches" \
-            -d "{\"ref\": \"$BRANCH\"}"
-          echo "### Pull request with the console edits: $URL" >> "$GITHUB_STEP_SUMMARY"
+          API="https://app.terraform.io/api/v2"
+          H="Authorization: Bearer $TF_API_TOKEN"
+          WS=$(curl -sf -H "$H" "$API/organizations/$TFC_ORG/workspaces/$WS_NAME" \
+               | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
+          # a run already waiting (e.g. the latest merge, or last night's restore): confirm that one
+          WAITING=$(curl -sf -H "$H" "$API/workspaces/$WS/runs?page%5Bsize%5D=20" | python3 -c '
+          import sys, json
+          active = {"pending", "fetching", "fetching_completed", "pre_plan_running", "pre_plan_completed", "queuing",
+                    "plan_queued", "planning", "planned", "cost_estimating", "cost_estimated", "policy_checking",
+                    "policy_override", "policy_soft_failed", "policy_checked", "confirmed", "post_plan_running",
+                    "post_plan_completed", "apply_queued", "applying"}
+          runs = [r["id"] for r in json.load(sys.stdin)["data"] if r["attributes"]["status"] in active]
+          print(runs[0] if runs else "")')
+          if [ -n "$WAITING" ]; then
+            MSG="A run is already waiting in $WS_NAME: Confirm & apply it to put the Git version back: $UI/$WAITING"
+          else
+            python3 - "$WS" "$TS_STAGE" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" > run.json <<'PY'
+          import json, sys
+          ws, stage, link = sys.argv[1:]
+          print(json.dumps({"data": {"type": "runs",
+              "attributes": {"message": f"Restore the Git version on the {stage} tenant (drift check {link})",
+                             "replace-addrs": ["terraform_data.deploy"]},
+              "relationships": {"workspace": {"data": {"type": "workspaces", "id": ws}}}}}))
+          PY
+            RUN=$(curl -sf -X POST -H "$H" -H "Content-Type: application/vnd.api+json" "$API/runs" --data @run.json \
+                  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
+            MSG="Restore run queued in $WS_NAME: Confirm & apply it to put the Git version back: $UI/$RUN"
+          fi
+          echo "::error title=Confirm the restore in $WS_NAME::$MSG"
+          echo "### $MSG" >> "$GITHUB_STEP_SUMMARY"

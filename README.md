@@ -33,7 +33,7 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
 | **Deploy (manual fallback)** (`deploy.yml`) | on demand only (deploys are done by HCP Terraform) | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant, copies the journeys changed in the console into `journeys/` (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`), opens a PR and starts its check. |
-| **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. An older version from Git means the latest is not applied yet (apply it in HCP Terraform). An **edit made in the console** opens a pull request with the tenant's version (`drift/<stage>-tenant`, updated while open): merge to keep it, close and re-apply to undo it. |
+| **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it queues a **restore run** in the tenant's HCP Terraform workspace, which forces the deploy of the Git version and waits for Confirm & apply. Needs the repository secret `TF_API_TOKEN`. |
 
 Notes:
 - Transmit's validate answers HTTP 201 even when it finds problems; the scripts read `status` in the body.
@@ -92,9 +92,9 @@ journeys stay out of the repo. Deleting a journey is a manual step (the pipeline
    or with the console's *Test journey*. *"Your Terraform pipeline, your approvals, one artifact."*
 5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder of
    the prod tenant, then run **Drift check** manually: **Drift on prod tenant** is red, shows the changed
-   line, and opens a pull request with the prod tenant's version. Merge it to keep the change (promoted
-   dev → test → prod), or close it and re-apply `transmit-prod` to undo it.
-   *"Nothing changes in production without leaving a trace in Git."*
+   line, and queues a restore run in `transmit-prod`. Open it: the plan says `terraform_data.deploy will be
+   replaced, as requested`. **Confirm & apply**, and the Git version is back on the prod tenant.
+   *"Production only changes through the pipeline: anything else is put back."*
 6. **Rollback (2 min, optional).** Revert the merge commit with a PR and apply it again in the three
    workspaces.
 
