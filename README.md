@@ -54,7 +54,7 @@ Deploys are done by HCP Terraform (organization `amato-transmit-demo`). The same
 
 Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import with rollback, check that the tenant matches Git).
 
-- **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, with the changed lines.
+- **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, and only the fields that change, e.g. `~ "Display Information #a57b0299 › action › title › value" = "`Signed in`" -> "`Welcome back`"` (`terraform/flatten.py` turns each journey into readable *step › field* lines; form fields are listed by name).
 - **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply). `transmit-test` and `transmit-prod` plan and wait: **Confirm & apply** is the approval.
 - **Promotion gate:** before importing, `transmit-test` checks that amato-rosato-sbx-demo already has exactly this version, and `transmit-prod` checks telco-demo-tenant. If not, the apply is refused (*Apply transmit-dev first*), so the order dev → test → prod is enforced.
 - Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
