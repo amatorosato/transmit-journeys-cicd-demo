@@ -70,7 +70,8 @@ locals {
   # journey name (as in the console) => file and content; the plan shows the changed lines
   journeys = {
     for f in fileset(local.journeys_dir, "*.yaml") :
-    yamldecode(file("${local.journeys_dir}/${f}")).name => {
+    # without the DELETED- prefix of a soft-deleted journey, so its plan shows the rename, not destroy + create
+    trimprefix(yamldecode(file("${local.journeys_dir}/${f}")).name, "DELETED-") => {
       file    = "journeys/${f}"
       content = file("${local.journeys_dir}/${f}")
     }
