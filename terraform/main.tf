@@ -66,12 +66,21 @@ variable "PREV_TS_STAGE" {
 }
 
 locals {
-  journeys_dir = "${path.module}/../journeys"
-  # journey name (as in the console) => file and content; the plan shows the changed lines
+  journeys_dir   = "${path.module}/../journeys"
+  journey_files  = fileset(local.journeys_dir, "*.yaml")
+  journey_names  = { for f in local.journey_files : f => yamldecode(file("${local.journeys_dir}/${f}")).name }
+  active_names   = [for f, n in local.journey_names : n if !startswith(n, "DELETED-")]
+  # key = name as in the console. A soft-deleted journey (DELETED-<name>) is keyed without the prefix, so its plan shows
+  # the rename instead of destroy + create, unless another journey already has that name.
+  journey_key = {
+    for f, n in local.journey_names : f =>
+    startswith(n, "DELETED-") && !contains(local.active_names, trimprefix(n, "DELETED-")) ? trimprefix(n, "DELETED-") : n
+  }
+  journey_key_files = { for f, k in local.journey_key : k => f... }
+  # journey name => file and content; two journeys with the same name get their file name added to stay unique
   journeys = {
-    for f in fileset(local.journeys_dir, "*.yaml") :
-    # without the DELETED- prefix of a soft-deleted journey, so its plan shows the rename, not destroy + create
-    trimprefix(yamldecode(file("${local.journeys_dir}/${f}")).name, "DELETED-") => {
+    for f, k in local.journey_key :
+    (length(local.journey_key_files[k]) > 1 ? "${k} (${trimsuffix(f, ".yaml")})" : k) => {
       file    = "journeys/${f}"
       content = file("${local.journeys_dir}/${f}")
     }
