@@ -64,6 +64,10 @@ def main(export_zip):
         doc = yaml.safe_load(open(path))
         name = label(doc, fname)
         short = (doc or {}).get("name") or ((doc or {}).get("data") or {}).get("name") or fname[:-5]
+        if path not in live and short.startswith("DELETED-"):
+            print(f"OK    {name}: soft-deleted, not on {tenant}")
+            rows.append((name, "✅ deleted", ""))
+            continue
         if path not in live:
             error(f"{short} is not deployed on {tenant}", f"{name} is in Git but not on {tenant}. {fix}.")
             rows.append((name, "❌ not deployed yet", fix))
