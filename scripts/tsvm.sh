@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Transmit Version Management helper for the pipeline.
-#   scripts/tsvm.sh build    <out.zip>   package journeys/ (+ sub-journeys/, connections/) as a selective ZIP
+#   scripts/tsvm.sh build    <out.zip> [tenant-export.zip]   package journeys/ (+ sub-journeys/, connections/) as a
+#                                       selective ZIP; with the tenant's export, soft-deleted journeys (DELETED-<name>)
+#                                       that are not on that tenant are left out, so they are never re-created
 #   scripts/tsvm.sh validate <pkg.zip>   dry run on the tenant; fails unless the body says "status": "success"
 #   scripts/tsvm.sh import   <pkg.zip> [backup.zip]   import with failureRollBack=true; with a backup export of
 #                                       the SAME tenant, its application metadata is added to the package (some
@@ -21,6 +23,17 @@ if [ "$CMD" = build ]; then
     mkdir -p "$IDO/$dst"; cp "$src"/*.yaml "$IDO/$dst/"
     printf "mode: selective\nnotFound: []\n" > "$IDO/$dst/manifest.yaml"
   done
+  if [ -n "${3:-}" ] && [ -d "$IDO/journeys" ]; then
+    python3 - "$IDO/journeys" "$3" <<'EOF'
+import os, re, sys, zipfile
+folder, export = sys.argv[1:]
+on_tenant = {os.path.basename(n) for n in zipfile.ZipFile(export).namelist() if "/ido/journeys/" in n}
+for f in sorted(os.listdir(folder)):
+    if f != "manifest.yaml" and f not in on_tenant and re.search(r"^name: ['\"]?DELETED-", open(os.path.join(folder, f)).read(), re.M):
+        os.remove(os.path.join(folder, f))
+        print(f"left out {f}: soft-deleted (DELETED-) and not on the tenant, so it is not re-created")
+EOF
+  fi
   # python's zipfile instead of the zip command (not installed on HCP Terraform workers)
   rm -f "$FILE"; python3 - "$TMP" "$FILE" <<'EOF'
 import os, sys, zipfile

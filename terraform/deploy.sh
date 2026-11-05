@@ -30,10 +30,11 @@ if [ -n "${PREV_TS_TENANT_ID:-}" ]; then
     exit 1
   fi
 fi
-bash scripts/tsvm.sh build "$WORK/package.zip"
-python3 scripts/guard.py "$WORK/package.zip"
 echo "== Backup of the $STAGE tenant before the change"
 bash scripts/tsvm.sh export "$WORK/backup.zip"
+# with the backup, soft-deleted journeys no longer on this tenant are left out (never re-created)
+bash scripts/tsvm.sh build "$WORK/package.zip" "$WORK/backup.zip"
+python3 scripts/guard.py "$WORK/package.zip"
 echo "== Validate"
 bash scripts/tsvm.sh validate "$WORK/package.zip"
 echo "== Import (rollback on failure)"
