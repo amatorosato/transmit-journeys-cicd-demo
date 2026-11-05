@@ -1,15 +1,15 @@
 """Compare the journeys in Git with what is live on the tenant.
 Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
-A journey that differs is either an older version from Git (not applied yet) or an edit made in the console.
-With DRIFT_EDITED set, the console edits are written there (one "file<TAB>name" per line) for a pull request.
+Git always wins: when a journey differs, the drift workflow opens a restore pull request; once merged, HCP
+Terraform deploys the Git version again on that tenant (after Confirm & apply).
+DRIFT_REPORT (optional): markdown file with the journeys that differ and their diff, for the pull request.
 Optional env: TS_STAGE (dev, test, prod: messages say "the test tenant"), GITHUB_STEP_SUMMARY (set by GitHub
 Actions: a summary table is written there).
 """
 import difflib
 import glob
 import os
-import subprocess
 import sys
 import zipfile
 
@@ -39,20 +39,6 @@ def label(doc, fname):
     return name if fname == name + ".yaml" else f"{name} ({fname})"
 
 
-def in_git_history(path, have):
-    """True if the tenant's version equals an earlier version of the file in Git (needs full history)."""
-    try:
-        commits = subprocess.run(["git", "log", "--format=%H", "--", path],
-                                 capture_output=True, text=True, check=True).stdout.split()
-    except (OSError, subprocess.CalledProcessError):
-        return False
-    for c in commits[1:]:
-        old = subprocess.run(["git", "show", f"{c}:{path}"], capture_output=True, text=True)
-        if old.returncode == 0 and norm(yaml.safe_load(old.stdout) or {}) == have:
-            return True
-    return False
-
-
 def error(title, text):
     """GitHub Actions annotation in a workflow, plain line elsewhere (e.g. HCP Terraform)."""
     print(f"::error title={title}::{text}" if os.environ.get("GITHUB_ACTIONS") else f"ERROR {text}")
@@ -62,7 +48,8 @@ def main(export_zip):
     stage = {"production": "prod"}.get(os.environ.get("TS_STAGE", ""), os.environ.get("TS_STAGE"))
     tenant = f"the {stage} tenant" if stage else "the tenant"
     workspace = f"transmit-{stage}" if stage else "the Terraform workspace"
-    edited = []
+    fix = f"Merge the restore pull request, then Confirm & apply in {workspace}: the Git version is put back"
+    report = []
     z = zipfile.ZipFile(export_zip)
     live = {n.rsplit("/", 1)[1]: n for n in z.namelist() if "/ido/journeys/" in n and n.endswith(".yaml")}
     rows = []
@@ -72,7 +59,6 @@ def main(export_zip):
         name = label(doc, fname)
         short = (doc or {}).get("name") or fname[:-5]
         if fname not in live:
-            fix = f"Confirm & apply the waiting run in {workspace} (or start a new run there)"
             error(f"{short} is not deployed on {tenant}", f"{name} is in Git but not on {tenant}. {fix}.")
             rows.append((name, "❌ not deployed yet", fix))
             continue
@@ -82,19 +68,13 @@ def main(export_zip):
             print(f"OK    {name}: {tenant} matches Git")
             rows.append((name, "✅ matches Git", ""))
             continue
-        if in_git_history(path, have):
-            fix = f"Confirm & apply the waiting run in {workspace} (or start a new run there)"
-            error(f"{short}: older version on {tenant}",
-                  f"{name} on {tenant} is an older version from Git: the latest one is not applied yet. {fix}.")
-            rows.append((name, "⏳ older version, not applied yet", fix))
-        else:
-            fix = ("A pull request with this version is opened: merge it to keep the change, or close it and "
-                   f"start a new run in {workspace} to put the Git version back")
-            error(f"{short} was edited on {tenant}",
-                  f"{name} was edited in the console of {tenant}: it differs from every version in Git. {fix}. "
-                  "The diff is in the log.")
-            rows.append((name, "❌ edited in the console", fix))
-            edited.append((fname, short))
+        error(f"{short} differs on {tenant}",
+              f"{name} on {tenant} differs from Git (edited in the console, or the latest version is not applied "
+              f"yet). {fix}. The diff is in the log.")
+        rows.append((name, "❌ differs from Git", fix))
+        diff = list(difflib.unified_diff(want, have, "git/" + fname, "tenant/" + fname, lineterm=""))
+        report.append(f"#### {name}\n\n```diff\n" + "\n".join(diff[:200]) +
+                      ("\n… (diff truncated)" if len(diff) > 200 else "") + "\n```\n")
         print(f"--- what changed on {tenant} (- Git, + {tenant}) ---")
         sys.stdout.writelines(l + "\n" for l in difflib.unified_diff(want, have, "git/" + fname, "tenant/" + fname,
                                                                    lineterm=""))
@@ -103,9 +83,10 @@ def main(export_zip):
         with open(summary, "a") as f:
             f.write(f"### Journeys on {tenant} compared with Git\n\n| Journey | Status | What to do |\n|---|---|---|\n")
             f.writelines(f"| {n} | {st} | {fx} |\n" for n, st, fx in rows)
-    if os.environ.get("DRIFT_EDITED"):
-        with open(os.environ["DRIFT_EDITED"], "w") as f:
-            f.writelines(f"{fn}\t{n}\n" for fn, n in edited)
+    if os.environ.get("DRIFT_REPORT"):
+        missing = [n for n, st, _ in rows if st.startswith("❌ not deployed")]
+        with open(os.environ["DRIFT_REPORT"], "w") as f:
+            f.write("".join(report) + "".join(f"#### {n}\n\nIn Git, not on {tenant}.\n" for n in missing))
     sys.exit(0 if all(st.startswith("✅") for _, st, _ in rows) else 1)
 
 
