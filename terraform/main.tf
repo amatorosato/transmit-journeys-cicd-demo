@@ -1,5 +1,6 @@
-# Deploys the journeys in journeys/ to one Transmit tenant (workspace transmit-cicd-demo:
-# amato-rosato-sbx-demo). Transmit has no Terraform provider, so Terraform tracks the journeys
+# Deploys the journeys in journeys/ to one Transmit tenant. The same code runs in three HCP Terraform
+# workspaces, one per stage: transmit-dev (amato-rosato-sbx-demo), transmit-test (telco-demo-tenant),
+# transmit-prod (Vodafone-CIAM-POC). Transmit has no Terraform provider, so Terraform tracks the journeys
 # and calls the same scripts as the GitHub pipeline (backup, guard, validate, import, check).
 #
 # The plan shows which journeys change. "Confirm & apply" in HCP Terraform is the approval.
@@ -23,6 +24,15 @@ variable "TS_REGION" {
 variable "TS_TENANT_NAME" {
   type        = string
   description = "Tenant name, used in the messages"
+}
+
+variable "TS_STAGE" {
+  type        = string
+  description = "Stage of this workspace: dev, test or production"
+  validation {
+    condition     = contains(["dev", "test", "production"], var.TS_STAGE)
+    error_message = "TS_STAGE must be dev, test or production."
+  }
 }
 
 locals {
@@ -55,7 +65,7 @@ resource "terraform_data" "deploy" {
       TS_TENANT_ID   = var.TS_TENANT_ID
       TS_REGION      = var.TS_REGION
       TS_TENANT_NAME = var.TS_TENANT_NAME
-      TS_STAGE       = "dev"
+      TS_STAGE       = var.TS_STAGE
     }
   }
 
@@ -63,7 +73,7 @@ resource "terraform_data" "deploy" {
 }
 
 output "tenant" {
-  value = var.TS_TENANT_NAME
+  value = "${var.TS_TENANT_NAME} (${var.TS_STAGE})"
 }
 
 output "journeys" {
