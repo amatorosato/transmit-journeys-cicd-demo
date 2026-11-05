@@ -118,3 +118,10 @@ output "tenant" {
 output "journeys" {
   value = { for name, j in local.journeys : name => j.file }
 }
+
+# What this workspace last applied (journey file => sha256 of its content). The drift check reads it
+# from HCP Terraform to tell "not applied yet" from "edited in the console".
+output "applied_versions" {
+  value      = { for name, j in local.journeys : j.file => sha256(j.content) }
+  depends_on = [terraform_data.deploy]
+}

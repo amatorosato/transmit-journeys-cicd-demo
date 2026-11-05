@@ -35,6 +35,8 @@ jobs:
       TS_REGION: ${{ matrix.region }}
       TS_STAGE: ${{ matrix.stage }}
       DRIFT_EDITED: drift-edited.tsv   # in the workspace, never committed (only journeys/ is)
+      DEPLOYED_VERSIONS: applied-versions.json
+      TFC_ORG: amato-transmit-demo
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,6 +44,27 @@ jobs:
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export tenant
         run: bash scripts/tsvm.sh export "$RUNNER_TEMP/live.zip"
+      - name: What HCP Terraform last applied
+        env:
+          TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+        run: |
+          if [ -z "$TF_API_TOKEN" ]; then
+            echo "::warning title=TF_API_TOKEN not set::Without it the drift check cannot tell a version not applied yet from a change undone in the console."
+            exit 0
+          fi
+          H="Authorization: Bearer $TF_API_TOKEN"
+          WS=$(curl -sf -H "$H" "https://app.terraform.io/api/v2/organizations/$TFC_ORG/workspaces/transmit-$TS_STAGE" \
+               | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
+          curl -sf -H "$H" "https://app.terraform.io/api/v2/workspaces/$WS/current-state-version-outputs" \
+            | python3 -c '
+          import sys, json
+          out = {o["attributes"]["name"]: o["attributes"]["value"] for o in json.load(sys.stdin)["data"]}
+          if "applied_versions" in out:
+              json.dump(out["applied_versions"], open(sys.argv[1], "w"))
+              print("applied by transmit-'"$TS_STAGE"':", ", ".join(sorted(out["applied_versions"])))
+          else:
+              print("::warning::transmit-'"$TS_STAGE"' has no applied_versions output yet: apply it once")
+          ' "$DEPLOYED_VERSIONS"
       - name: Compare with Git
         run: python3 scripts/drift.py "$RUNNER_TEMP/live.zip"
       - name: Open a pull request with the console edits

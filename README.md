@@ -60,6 +60,7 @@ Transmit has no Terraform provider: Terraform tracks one entry per journey and, 
 - Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
 - Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables. On `transmit-test` and `transmit-prod`, the same for the previous stage with the `PREV_` prefix (`PREV_TS_TENANT_ID`, …, `PREV_TS_CLIENT_SECRET`).
 - Removing a journey file does not delete the journey on the tenant (delete it in the console).
+- Each workspace publishes `applied_versions` (journey file → sha256 of what it applied). The drift check reads it with the repository secret `TF_API_TOKEN` (an HCP Terraform API token) to tell *not applied yet* from *edited in the console*, even when a console edit happens to restore an older version.
 
 ## Working in the console
 

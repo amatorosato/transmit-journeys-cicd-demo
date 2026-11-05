@@ -2,12 +2,17 @@
 Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
 A journey that differs is either an older version from Git (not applied yet) or an edit made in the console.
+DEPLOYED_VERSIONS (optional): JSON {"journeys/<file>": sha256} of what HCP Terraform last applied on this tenant.
+With it: Git != applied -> not applied yet; Git == applied but tenant different -> edited in the console.
+Without it, a tenant version equal to an earlier Git version is reported as "older version" (ambiguous).
 With DRIFT_EDITED set, the console edits are written there (one "file<TAB>name" per line) for a pull request.
 Optional env: TS_STAGE (dev, test, prod: messages say "the test tenant"), GITHUB_STEP_SUMMARY (set by GitHub
 Actions: a summary table is written there).
 """
 import difflib
 import glob
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -63,6 +68,9 @@ def main(export_zip):
     tenant = f"the {stage} tenant" if stage else "the tenant"
     workspace = f"transmit-{stage}" if stage else "the Terraform workspace"
     edited = []
+    applied = None
+    if os.environ.get("DEPLOYED_VERSIONS") and os.path.exists(os.environ["DEPLOYED_VERSIONS"]):
+        applied = json.load(open(os.environ["DEPLOYED_VERSIONS"]))
     z = zipfile.ZipFile(export_zip)
     live = {n.rsplit("/", 1)[1]: n for n in z.namelist() if "/ido/journeys/" in n and n.endswith(".yaml")}
     rows = []
@@ -82,16 +90,28 @@ def main(export_zip):
             print(f"OK    {name}: {tenant} matches Git")
             rows.append((name, "✅ matches Git", ""))
             continue
-        if in_git_history(path, have):
-            fix = f"Confirm & apply the waiting run in {workspace} (or start a new run there)"
+        pending_fix = f"Confirm & apply the waiting run in {workspace} (or start a new run there)"
+        if applied is not None:
+            git_sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
+            not_applied = applied.get(path) != git_sha
+        else:
+            not_applied = None if in_git_history(path, have) else False
+        if not_applied:
+            error(f"{short}: not applied yet on {tenant}",
+                  f"{name}: the latest version in Git is not applied on {tenant} yet. {pending_fix}.")
+            rows.append((name, "⏳ not applied yet", pending_fix))
+        elif not_applied is None:
+            fix = (f"{pending_fix}; if nothing is waiting there, a change was undone in the console: set "
+                   "TF_API_TOKEN so the drift check can tell the two cases apart")
             error(f"{short}: older version on {tenant}",
-                  f"{name} on {tenant} is an older version from Git: the latest one is not applied yet. {fix}.")
-            rows.append((name, "⏳ older version, not applied yet", fix))
+                  f"{name} on {tenant} equals an older version in Git: either the latest one is not applied yet, "
+                  f"or a change was undone in the console. {fix}.")
+            rows.append((name, "⏳ older version", fix))
         else:
             fix = ("A pull request with this version is opened: merge it to keep the change, or close it and "
                    f"start a new run in {workspace} to put the Git version back")
             error(f"{short} was edited on {tenant}",
-                  f"{name} was edited in the console of {tenant}: it differs from every version in Git. {fix}. "
+                  f"{name} was edited in the console of {tenant}: it differs from the version applied by the pipeline. {fix}. "
                   "The diff is in the log.")
             rows.append((name, "❌ edited in the console", fix))
             edited.append((fname, short))
