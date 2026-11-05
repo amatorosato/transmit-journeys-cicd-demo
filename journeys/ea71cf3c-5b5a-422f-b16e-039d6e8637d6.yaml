@@ -5,7 +5,7 @@ versions:
       type: expression
       value:
         type: expression
-        value: 'true'
+        value: 'false'
     workflow:
       id: 9b2cd6fc-fd09-409b-8d6f-3fd093809b2c
       steps:
@@ -94,7 +94,7 @@ versions:
     version_id: default_version
     state: version
     desc: default_version
-name: CICD-Login
+name: DELETED-CICD-Login
 created_date: 1793793877377
 type: anonymous
 config:
