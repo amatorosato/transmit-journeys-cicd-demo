@@ -10,7 +10,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to ${{ inputs.tenant }}
+    name: Deploy to ${{ inputs.environment }} tenant
     # pinned image: no "ubuntu-latest will migrate" notice; bump it on purpose
     runs-on: ubuntu-24.04
     environment: ${{ inputs.environment }}
@@ -20,7 +20,7 @@ jobs:
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: ${{ inputs.region }}
       TS_TENANT_NAME: ${{ inputs.tenant }}
-      TS_STAGE: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+      TS_STAGE: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml

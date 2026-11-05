@@ -54,7 +54,7 @@ jobs:
           CHANGED=$(git diff --cached --name-only | sed 's|^journeys/||; s|\.yaml$||' | paste -sd, - | sed 's/,/, /g')
           git commit -q -m "Capture from dev: $CHANGED"
           git push -q origin "$BRANCH"
-          BODY="Journeys changed in the dev console (amato-rosato-sbx-demo), captured by @${{ github.actor }}: $CHANGED"
+          BODY="Journeys changed in the dev tenant console, captured by @${{ github.actor }}: $CHANGED"
           python3 - "$BRANCH" "$CHANGED" "$BODY" > pr.json <<'EOF'
           import json, sys
           b, changed, body = sys.argv[1:]
