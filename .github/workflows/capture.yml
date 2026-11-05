@@ -2,7 +2,8 @@ name: Capture from dev
 
 # Designers edit journeys in the dev console; this brings their work into Git as a pull request.
 # Exports the dev tenant, updates journeys/ (journeys already in Git + the ones named + the ones with the
-# prefix), opens a PR and starts its "validate" check. From there: review, merge, approvals, promotion.
+# prefix) and connections/ (external connections already in Git + the ones named + the ones the journeys use),
+# opens a PR and starts its "validate" check. From there: review, merge, approvals, promotion.
 # Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
 on:
   workflow_dispatch:
@@ -15,6 +16,10 @@ on:
         description: "Also capture every journey whose id starts with"
         required: false
         default: "CICD-"
+      connections:
+        description: "Extra external connections, by name or id, comma separated (the ones the journeys use come automatically)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -38,26 +43,37 @@ jobs:
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export dev tenant
         run: bash scripts/tsvm.sh export dev.zip
-      - name: Update journeys/ from the export
-        run: python3 scripts/capture.py dev.zip --journeys "${{ inputs.journeys }}" --prefix "${{ inputs.prefix }}"
+      - name: Update journeys/ and connections/ from the export
+        run: |
+          python3 scripts/capture.py dev.zip --journeys "${{ inputs.journeys }}" --prefix "${{ inputs.prefix }}" \
+            --connections "${{ inputs.connections }}" --notes "$RUNNER_TEMP/notes.md"
       - name: Open a pull request
         run: |
           rm -f dev.zip
-          if [ -z "$(git status --porcelain journeys)" ]; then
+          if [ -z "$(git status --porcelain journeys connections)" ]; then
             echo "No changes: dev matches Git." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
           fi
           BRANCH="capture/dev-${{ github.run_id }}"
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add journeys
-          CHANGED=$(git diff --cached --name-only | sed 's|^journeys/||; s|\.yaml$||' | paste -sd, - | sed 's/,/, /g')
+          git add journeys connections
+          # names as in the console: journey name, connection name (connection files are named by id)
+          CHANGED=$(git diff --cached --name-only | python3 -c '
+          import sys, yaml
+          out = []
+          for p in sys.stdin.read().split():
+              d = yaml.safe_load(open(p)) or {}
+              out.append(d.get("name") or (d.get("data") or {}).get("name") or p.rsplit("/", 1)[-1][:-5])
+          print(", ".join(out))')
           git commit -q -m "Capture from dev: $CHANGED"
           git push -q origin "$BRANCH"
-          BODY="Journeys changed in the dev tenant console, captured by @${{ github.actor }}: $CHANGED"
-          python3 - "$BRANCH" "$CHANGED" "$BODY" > pr.json <<'EOF'
-          import json, sys
-          b, changed, body = sys.argv[1:]
+          BODY="Journeys and external connections changed in the dev tenant console, captured by @${{ github.actor }}: $CHANGED"
+          python3 - "$BRANCH" "$CHANGED" "$BODY" "$RUNNER_TEMP/notes.md" > pr.json <<'EOF'
+          import json, os, sys
+          b, changed, body, notes = sys.argv[1:]
+          if os.path.exists(notes) and os.path.getsize(notes):
+              body += "\n\n" + open(notes).read()
           print(json.dumps({"title": f"Capture from dev: {changed}", "head": b, "base": "main", "body": body}))
           EOF
           URL=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
