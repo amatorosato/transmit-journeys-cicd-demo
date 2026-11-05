@@ -6,6 +6,9 @@
 # The plan shows which journeys change. "Confirm & apply" in HCP Terraform is the approval.
 terraform {
   required_version = ">= 1.5"
+  required_providers {
+    external = { source = "hashicorp/external", version = "~> 2.3" }
+  }
 }
 
 # Non-secret settings: workspace "Terraform variables".
@@ -82,11 +85,22 @@ locals {
   restore      = fileexists(local.restore_file) ? trimspace(file(local.restore_file)) : ""
 }
 
-# One entry per journey: the plan lists the journeys that are new or changed, with the changed lines.
+# Each journey as readable "step › field = value" lines (terraform/flatten.py), so the plan shows only the
+# fields that change, e.g. ~ "Display Information #a57b0299 › action › title" = "`Signed in`" -> "`Welcome back`"
+data "external" "journey_fields" {
+  for_each = local.journeys
+  program  = ["python3", "${path.module}/flatten.py"]
+  query    = { journey = jsonencode(yamldecode(each.value.content)) }
+}
+
+# One entry per journey: the plan lists the journeys that are new or changed, and the fields that change.
 # Removing a file only drops it from Terraform: the journey stays on the tenant (delete it in the console).
 resource "terraform_data" "journey" {
   for_each = local.journeys
-  input    = each.value
+  triggers_replace = {
+    file   = each.value.file
+    fields = data.external.journey_fields[each.key].result
+  }
 }
 
 # The deploy itself: runs again whenever any journey (or the target tenant) changes.
