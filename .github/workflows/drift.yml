@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - { stage: test, environment: test-readonly, region: us, tenant: telco-demo-tenant }
-          - { stage: production, environment: prod-readonly, region: eu, tenant: Vodafone-CIAM-POC }
+          - { stage: prod, environment: prod-readonly, region: eu, tenant: Vodafone-CIAM-POC }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}

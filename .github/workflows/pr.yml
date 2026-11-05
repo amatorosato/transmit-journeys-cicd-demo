@@ -18,7 +18,7 @@ jobs:
       TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
       TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
       TS_REGION: sbx
-      TS_TENANT_NAME: amato-rosato-sbx-demo
+      TS_STAGE: dev
     steps:
       - uses: actions/checkout@v6
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml

@@ -28,10 +28,10 @@ variable "TS_TENANT_NAME" {
 
 variable "TS_STAGE" {
   type        = string
-  description = "Stage of this workspace: dev, test or production"
+  description = "Stage of this workspace: dev, test or prod"
   validation {
-    condition     = contains(["dev", "test", "production"], var.TS_STAGE)
-    error_message = "TS_STAGE must be dev, test or production."
+    condition     = contains(["dev", "test", "prod", "production"], var.TS_STAGE)
+    error_message = "TS_STAGE must be dev, test or prod."
   }
 }
 
@@ -59,7 +59,7 @@ variable "PREV_TS_TENANT_NAME" {
 variable "PREV_TS_STAGE" {
   type        = string
   default     = ""
-  description = "Previous stage: dev for test, test for production"
+  description = "Previous stage: dev for test, test for prod"
 }
 
 locals {
@@ -112,7 +112,7 @@ resource "terraform_data" "deploy" {
 }
 
 output "tenant" {
-  value = "${var.TS_TENANT_NAME} (${var.TS_STAGE})"
+  value = "${replace(var.TS_STAGE, "production", "prod")} tenant"
 }
 
 output "journeys" {
