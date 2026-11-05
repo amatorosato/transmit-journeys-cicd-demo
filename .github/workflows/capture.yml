@@ -57,7 +57,8 @@ jobs:
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add journeys connections
+          git add journeys
+          [ -d connections ] && git add connections   # the folder exists only once a connection is captured
           # names as in the console: journey name, connection name (connection files are named by id)
           CHANGED=$(git diff --cached --name-only | python3 -c '
           import sys, yaml
