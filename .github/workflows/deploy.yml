@@ -1,12 +1,9 @@
-name: Deploy
+name: Deploy (manual fallback)
 
-# Merge to main: deploy to dev (amato-rosato-sbx-demo), then after approval to test
-# (telco-demo-tenant, US), then after a second approval to prod (Vodafone-CIAM-POC, EU).
-# The same commit goes through every stage.
+# Deploys are done by HCP Terraform (see terraform/). This workflow only runs on demand, as a fallback:
+# dev (amato-rosato-sbx-demo), then after approval test (telco-demo-tenant, US), then after a second
+# approval prod (Vodafone-CIAM-POC, EU). The same commit goes through every stage.
 on:
-  push:
-    branches: [main]
-    paths: ["journeys/**", "sub-journeys/**", "connections/**"]
   workflow_dispatch:
 
 concurrency:

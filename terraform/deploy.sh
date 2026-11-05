@@ -13,7 +13,7 @@ if ! python3 -c 'import yaml' 2>/dev/null; then
   export PYTHONPATH="$WORK/pylib${PYTHONPATH:+:$PYTHONPATH}"
 fi
 
-echo "== Deploying to $TS_TENANT_NAME"
+echo "== Deploying to $TS_TENANT_NAME (${TS_STAGE:-?} tenant)"
 bash scripts/tsvm.sh build "$WORK/package.zip"
 python3 scripts/guard.py "$WORK/package.zip"
 echo "== Backup of $TS_TENANT_NAME before the change"

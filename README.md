@@ -31,7 +31,7 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | Workflow | When | What |
 |---|---|---|
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
-| **Deploy** (`deploy.yml`) | merge to `main` | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
+| **Deploy (manual fallback)** (`deploy.yml`) | on demand only (deploys are done by HCP Terraform) | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant, copies the journeys changed in the console into `journeys/` (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`), opens a PR and starts its check. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports each tenant and flags journeys that differ from Git. |
 
@@ -44,12 +44,20 @@ Notes:
 
 ## Terraform (HCP Terraform)
 
-`terraform/` deploys the journeys with HCP Terraform (organization `amato-transmit-demo`, workspace `transmit-cicd-demo`, target amato-rosato-sbx-demo). Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import, check).
+Deploys are done by HCP Terraform (organization `amato-transmit-demo`). The same code in `terraform/` runs in three workspaces, one per stage:
 
-- **Pull request:** HCP runs a speculative plan and reports it as a check on the PR: it lists the journeys that are new or changed.
-- **Merge to `main`:** HCP plans again and waits. **Confirm & apply** is the approval; the apply imports the journeys.
-- Workspace settings: execution mode Remote, Manual apply, working directory `terraform`, VCS trigger paths `terraform/**` and `journeys/**`.
-- Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables.
+| Workspace | Tenant | `TS_STAGE` | `TS_REGION` |
+|---|---|---|---|
+| `transmit-dev` | amato-rosato-sbx-demo | dev | sbx |
+| `transmit-test` | telco-demo-tenant | test | us |
+| `transmit-prod` | Vodafone-CIAM-POC | production | eu |
+
+Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import with rollback, check that the tenant matches Git).
+
+- **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant.
+- **Merge to `main`:** each workspace plans and waits. **Confirm & apply** is the approval. Apply in order: `transmit-dev`, then `transmit-test`, then `transmit-prod` (HCP does not enforce the order).
+- Workspace settings: execution mode Remote, Manual apply, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**` and `journeys/**`, automatic speculative plans on.
+- Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables.
 - Removing a journey file does not delete the journey on the tenant (delete it in the console).
 
 ## Working in the console
@@ -69,19 +77,20 @@ journeys stay out of the repo. Deleting a journey is a manual step (the pipeline
 1. **Journeys are code (2 min).** Open `journeys/CICD-Demo-Login.yaml`: steps, form, texts, all readable
    and versioned. *"The journey is code, with history and review."*
 2. **A change with a pull request (5 min).** Open the PR from branch `demo/change-welcome-text`
-   (new form title). The PR check starts by itself and validates on `dev`. Show the diff: one line.
+   (new form title). The PR check starts by itself and validates on `dev`; the HCP Terraform checks
+   show the plan for each tenant (`~ terraform_data.journey["CICD-Demo-Login"]`). Show the diff: one line.
 3. **The pipeline stops an error (4 min).** Open the PR from `demo/broken-missing-subjourney`: the journey
    calls a sub-journey that does not exist on the tenant → validate fails with `MISSING_DEPENDENCIES`,
    the check is red, merge is blocked. Optional: `demo/broken-empty-package` (all journeys deleted by
    mistake) → the guard answers `REFUSED`. *"Errors stop before production."*
-4. **Merge and promotion with approval (5 min).** Merge the good PR. Deploy runs on `dev` (backup, import,
-   verify), then stops on **Review deployments** for `test`. Approve, and the same commit reaches `test`;
-   it stops again for `prod`: approve, and it reaches production. Show the new title in the form builder
-   or with the console's *Test journey*. *"Separation of duties, audit trail, one artifact."*
+4. **Merge and promotion with approval (5 min).** Merge the good PR. In HCP Terraform, the three
+   workspaces plan the same commit and wait. **Confirm & apply** on `transmit-dev` (backup, import,
+   verify), then on `transmit-test`, then on `transmit-prod`. Show the new title in the form builder
+   or with the console's *Test journey*. *"Your Terraform pipeline, your approvals, one artifact."*
 5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder on
    `prod`, then run **Drift check** manually: the `prod-readonly` job is red and shows the changed line.
    *"Designers can use the visual editor; Git catches the difference."*
-6. **Rollback (2 min, optional).** Revert the merge commit with a PR and promote it again, or download the
-   backup artifact saved before the import.
+6. **Rollback (2 min, optional).** Revert the merge commit with a PR and apply it again in the three
+   workspaces.
 
 Before the demo: run the whole flow once the day before; record the full deploy in case the runners are slow.
