@@ -74,10 +74,12 @@ locals {
   }
   versions = { for name, j in local.journeys : name => sha256(j.content) }
 
-  # Restore requests written by the drift check through a pull request: {"prod": "<when>"}.
+  # Restore requests written by the drift check through a pull request: terraform/restore/<stage>
+  # holds the time of the last request (one file per tenant, so two restore pull requests never conflict).
   # A new value for this stage forces the deploy again, which puts the Git version back on the tenant.
-  stage   = replace(var.TS_STAGE, "production", "prod")
-  restore = lookup(jsondecode(file("${path.module}/restore.json")), local.stage, "")
+  stage        = replace(var.TS_STAGE, "production", "prod")
+  restore_file = "${path.module}/restore/${local.stage}"
+  restore      = fileexists(local.restore_file) ? trimspace(file(local.restore_file)) : ""
 }
 
 # One entry per journey: the plan lists the journeys that are new or changed, with the changed lines.

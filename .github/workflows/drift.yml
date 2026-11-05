@@ -4,7 +4,7 @@ name: Drift check
 # The dev tenant is left out on purpose: designers work there (Capture from dev).
 # Git always wins: when a tenant differs (edited in the console, or the latest version not applied), the
 # check opens a restore pull request (branch restore/<stage>-tenant, updated while open). It only changes
-# terraform/restore.json; once merged, HCP Terraform deploys the Git version again on that tenant only,
+# terraform/restore/<stage>; once merged, HCP Terraform deploys the Git version again on that tenant only,
 # after Confirm & apply. The other workspaces plan "no changes".
 # Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
 # Uses the "<env>-readonly" environments: same tenant, no approval, so the check never waits.
@@ -50,18 +50,11 @@ jobs:
           [ -s "$DRIFT_REPORT" ] || { echo "No differences found: no pull request."; exit 0; }
           BRANCH="restore/$TS_STAGE-tenant"
           NAMES=$(sed -n 's/^#### //p' "$DRIFT_REPORT" | sed 's/ (.*//' | paste -sd, - | sed 's/,/, /g')
-          python3 - "$TS_STAGE" <<'PY'
-          import json, sys, datetime
-          stage = sys.argv[1]
-          p = "terraform/restore.json"
-          data = json.load(open(p))
-          data[stage] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-          open(p, "w").write(json.dumps(data, indent=2, sort_keys=True) + "\n")
-          PY
+          date -u +%Y-%m-%dT%H:%M:%SZ > "terraform/restore/$TS_STAGE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -q -B "$BRANCH"
-          git add terraform/restore.json
+          git add "terraform/restore/$TS_STAGE"
           git commit -q -m "Restore the Git version on the $TS_STAGE tenant ($NAMES)"
           git push -q -f origin "$BRANCH"
           RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -70,7 +63,7 @@ jobs:
           stage, names, run, branch, report = sys.argv[1:]
           body = (f"The [drift check]({run}) found journeys on the **{stage} tenant** that differ from Git: "
                   f"{names}. They were edited in the console, or the latest version is not applied there yet.\n\n"
-                  f"**Git always wins.** This pull request only changes `terraform/restore.json`. Once merged:\n"
+                  f"**Git always wins.** This pull request only changes `terraform/restore/{stage}`. Once merged:\n"
                   f"- `transmit-{stage}` plans `terraform_data.deploy must be replaced`: **Confirm & apply**, and "
                   f"the Git version is back on the {stage} tenant;\n"
                   f"- the other workspaces plan *no changes*.\n\n"
