@@ -36,6 +36,11 @@ def label(doc, fname):
     return name if fname == name + ".yaml" else f"{name} ({fname})"
 
 
+def error(title, text):
+    """GitHub Actions annotation in a workflow, plain line elsewhere (e.g. HCP Terraform)."""
+    print(f"::error title={title}::{text}" if os.environ.get("GITHUB_ACTIONS") else f"ERROR {text}")
+
+
 def main(export_zip):
     stage = os.environ.get("TS_STAGE")
     tenant = f"the {stage} tenant" if stage else os.environ.get("TS_TENANT_NAME") or "the tenant"
@@ -53,7 +58,7 @@ def main(export_zip):
                 fix = f"A deploy is waiting for approval: approve it to bring the journey here ({pending})"
             else:
                 fix = "Run the Deploy workflow to bring the journey here"
-            print(f"::error title={short} is not deployed on {tenant}::{name} is in Git but not on {tenant}. {fix}.")
+            error(f"{short} is not deployed on {tenant}", f"{name} is in Git but not on {tenant}. {fix}.")
             rows.append((name, "❌ not deployed yet", fix))
             continue
         want = norm(doc)
@@ -62,10 +67,10 @@ def main(export_zip):
             print(f"OK    {name}: {tenant} matches Git")
             rows.append((name, "✅ matches Git", ""))
             continue
-        fix = "Re-run Deploy to put the Git version back, or bring the change into Git with a pull request"
-        print(f"::error title={short} was changed on {tenant}::{name} on {tenant} differs from Git "
-              f"(edited in the console, outside the pipeline). {fix}. The diff is in the log.")
-        rows.append((name, "❌ changed outside Git", fix))
+        fix = ("If the latest version is not deployed there yet, apply it; if it was edited in the console, "
+               "deploy again to put the Git version back, or bring the change into Git with a pull request")
+        error(f"{short} differs on {tenant}", f"{name} on {tenant} differs from Git. {fix}. The diff is in the log.")
+        rows.append((name, "❌ differs from Git", fix))
         print(f"--- what changed on {tenant} (- Git, + {tenant}) ---")
         sys.stdout.writelines(l + "\n" for l in difflib.unified_diff(want, have, "git/" + fname, "tenant/" + fname,
                                                                    lineterm=""))

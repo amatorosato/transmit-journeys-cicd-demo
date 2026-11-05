@@ -14,6 +14,20 @@ if ! python3 -c 'import yaml' 2>/dev/null; then
 fi
 
 echo "== Deploying to $TS_TENANT_NAME (${TS_STAGE:-?} tenant)"
+
+# Promotion gate: the previous stage must already run exactly this version
+if [ -n "${PREV_TS_TENANT_ID:-}" ]; then
+  : "${PREV_TS_CLIENT_ID:?missing: add PREV_TS_CLIENT_ID in the HCP workspace as an Environment variable (sensitive)}"
+  : "${PREV_TS_CLIENT_SECRET:?missing: add PREV_TS_CLIENT_SECRET in the HCP workspace as an Environment variable (sensitive)}"
+  echo "== Promotion gate: $PREV_TS_TENANT_NAME ($PREV_TS_STAGE) must already have this version"
+  if ! ( export TS_CLIENT_ID="$PREV_TS_CLIENT_ID" TS_CLIENT_SECRET="$PREV_TS_CLIENT_SECRET" \
+           TS_TENANT_ID="$PREV_TS_TENANT_ID" TS_REGION="$PREV_TS_REGION" \
+           TS_TENANT_NAME="$PREV_TS_TENANT_NAME" TS_STAGE="$PREV_TS_STAGE"
+         bash scripts/tsvm.sh export "$WORK/previous.zip" && python3 scripts/drift.py "$WORK/previous.zip" ); then
+    echo "REFUSED: $PREV_TS_TENANT_NAME does not have this version yet. Apply transmit-$PREV_TS_STAGE first, then start a new run here." >&2
+    exit 1
+  fi
+fi
 bash scripts/tsvm.sh build "$WORK/package.zip"
 python3 scripts/guard.py "$WORK/package.zip"
 echo "== Backup of $TS_TENANT_NAME before the change"
