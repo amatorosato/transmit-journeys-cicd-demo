@@ -62,7 +62,8 @@ def write(path, text, kind, name, detail=""):
                             (f"; {detail}" if detail else "")))
     else:
         print(f"same    {path}")
-        unchanged.append((kind, name))
+        if not name.startswith(PREFIX_DELETED):   # journeys deleted earlier are not worth listing
+            unchanged.append((kind, name))
 
 
 def split(value):
@@ -94,8 +95,6 @@ for j in sorted(wanted):
             changes.append(("🗑️ Deleted in the console", "Journey", name,
                             f"renamed `{PREFIX_DELETED}{name}`: stays deleted on the dev tenant, renamed on test and prod"))
             print(f"deleted {path}: not on the tenant any more, renamed {PREFIX_DELETED}{name} (soft delete)")
-        elif name.startswith(PREFIX_DELETED):
-            unchanged.append(("Journey", name + " (deleted)"))
         continue
     text = z.read(live[j]).decode()
     write(f"journeys/{j}.yaml", text, "Journey", (yaml.safe_load(text) or {}).get("name") or j)
