@@ -59,7 +59,10 @@ def main(export_zip):
             if tenant_dir in n and n.endswith(".yaml") and not n.endswith("/manifest.yaml"):
                 live[f"{git_dir}/{n.rsplit('/', 1)[1]}"] = n
     rows = []
+    only = set(os.environ.get("DRIFT_ONLY", "").split())   # check just these files (Request prod deploy)
     for path in sorted(glob.glob("journeys/*.yaml")) + sorted(glob.glob("connections/*.yaml")):
+        if only and path not in only:
+            continue
         fname = os.path.basename(path)
         doc = yaml.safe_load(open(path))
         name = label(doc, fname)

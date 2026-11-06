@@ -1,14 +1,20 @@
 name: Request prod deploy
 
 # The test team asks for the version on the test tenant to go to production.
-# 1. Checks that the test tenant runs exactly this version of main (what was tested is what is promoted).
-# 2. Opens a pull request into the prod branch with what changes on the prod tenant. The content is frozen at the
-#    tested commit (branch promote/prod-<run>), later merges to main are not included.
+# Optional: only some journeys (by name); the external connections they use come with them. Empty: everything.
+# 1. Checks that the test tenant runs exactly this version of main for those journeys (what was tested is promoted).
+# 2. Opens a pull request into the prod branch with what changes on the prod tenant. It is built from prod with only
+#    the chosen journeys (plus the pipeline code: scripts/, terraform/), frozen at the tested commit; later merges
+#    to main are not included.
 # 3. Optional maintenance window: the "Prod maintenance window" workflow merges the pull request at that time.
 # After the merge, HCP Terraform (transmit-prod follows the prod branch) plans: Confirm & apply.
 on:
   workflow_dispatch:
     inputs:
+      journeys:
+        description: "Journeys to deploy, by name, comma separated (empty: all the changes on the test tenant)"
+        required: false
+        default: ""
       window:
         description: "Maintenance window, UTC, e.g. 2026-11-08 22:00 (empty: merge by hand)"
         required: false
@@ -35,6 +41,7 @@ jobs:
       TS_STAGE: test
       GH_TOKEN: ${{ github.token }}
       WINDOW: ${{ inputs.window }}
+      JOURNEYS: ${{ inputs.journeys }}
       NOTE: ${{ inputs.note }}
     steps:
       - uses: actions/checkout@v6
@@ -56,6 +63,15 @@ jobs:
                   sys.exit(f"::error::Maintenance window {w} UTC is in the past")
               open(os.environ["GITHUB_ENV"], "a").write(f"WINDOW_ISO={t.strftime('%Y-%m-%dT%H:%MZ')}\n")
           PY
+      - name: Journeys to deploy
+        run: |
+          if [ -n "$(echo "$JOURNEYS" | tr -d ' ,')" ]; then
+            FILES=$(python3 scripts/select_promotion.py "$JOURNEYS")
+            echo "Promoting: $(echo $FILES)"
+            echo "DRIFT_ONLY=$(echo $FILES)" >> "$GITHUB_ENV"
+          else
+            echo "Promoting everything that changed on main"
+          fi
       - name: The test tenant must run this version
         run: |
           bash scripts/tsvm.sh export "$RUNNER_TEMP/test.zip"
@@ -63,6 +79,25 @@ jobs:
             echo "::error title=Not tested yet::The test tenant does not run this version of main. Confirm & apply transmit-test first, then request the prod deploy again."
             exit 1
           fi
+      - name: Build the version for prod
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          MAIN=$(git rev-parse HEAD)
+          echo "MAIN_SHA=$MAIN" >> "$GITHUB_ENV"
+          git checkout -q -B promote origin/prod
+          # pipeline code from main; the prod tenant's restore requests stay as they are on prod
+          git checkout -q "$MAIN" -- .github scripts terraform README.md
+          git checkout -q origin/prod -- terraform/restore 2>/dev/null || true
+          if [ -n "${DRIFT_ONLY:-}" ]; then
+            for f in $DRIFT_ONLY; do git checkout -q "$MAIN" -- "$f"; done
+          else
+            git rm -rq --ignore-unmatch journeys connections
+            git checkout -q "$MAIN" -- journeys
+            git ls-tree -d "$MAIN" connections | grep -q . && git checkout -q "$MAIN" -- connections
+          fi
+          git add -A
+          git commit -q -m "Promote to prod: ${JOURNEYS:-all the changes} (tested at main ${MAIN:0:7})" || echo "nothing to commit"
       - name: What changes on the prod tenant
         run: |
           set +e
@@ -76,7 +111,7 @@ jobs:
       - name: Open the pull request into prod
         if: env.CHANGED != ''
         run: |
-          SHA=$(git rev-parse HEAD)
+          SHA=$MAIN_SHA
           BRANCH="promote/prod-${{ github.run_id }}"
           git push -q origin "HEAD:refs/heads/$BRANCH"
           python3 - "$BRANCH" "$SHA" "${{ github.actor }}" "$RUNNER_TEMP/changes.md" > pr.json <<'PY'
@@ -84,8 +119,11 @@ jobs:
           branch, sha, actor, changes = sys.argv[1:]
           changed, window, wiso, note = (os.environ.get(k, "") for k in ("CHANGED", "WINDOW", "WINDOW_ISO", "NOTE"))
           now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+          only = os.environ.get("JOURNEYS", "").strip(" ,")
+          scope = (f"Only the journeys asked for: **{only}** (with the external connections they use). Other changes on "
+                   "main stay on the test tenant.\n\n") if only else ""
           body = (f"**Prod deploy requested by @{actor}.**" + (f"\n\n> {note}" if note.strip() else "") + "\n\n"
-                  f"Tested: the test tenant runs this version (commit `{sha[:7]}`, checked {now}).\n\n"
+                  + scope + f"Tested: the test tenant runs this version (main `{sha[:7]}`, checked {now}).\n\n"
                   + open(changes).read() + "\n")
           if wiso:
               body += (f"### Maintenance window: {window} UTC\n\n<!-- window: {wiso} -->\n"
