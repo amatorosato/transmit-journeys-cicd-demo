@@ -47,12 +47,13 @@ jobs:
         run: |
           python3 scripts/capture.py dev.zip --journeys "${{ inputs.journeys }}" --prefix "${{ inputs.prefix }}" \
             --connections "${{ inputs.connections }}" --notes "$RUNNER_TEMP/notes.md" --summary "$RUNNER_TEMP/summary.md"
+          echo; cat "$RUNNER_TEMP/summary.md"
       - name: Open a pull request
         run: |
           rm -f dev.zip
           if [ -z "$(git status --porcelain journeys connections)" ]; then
             cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
-            echo "No changes: dev matches Git."; exit 0
+            echo "::notice title=Capture from dev::No changes: everything in Git matches the dev tenant."; exit 0
           fi
           BRANCH="capture/dev-${{ github.run_id }}"
           git config user.name "${{ github.actor }}"
@@ -96,4 +97,4 @@ jobs:
             echo
             echo "Review it and merge it: the dev tenant applies by itself, then **Confirm & apply** on \`transmit-test\` and \`transmit-prod\` in HCP Terraform."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Pull request: $URL"
+          echo "::notice title=Capture from dev found changes::$(cat "$RUNNER_TEMP/summary.md.headline"). Pull request: $URL"
