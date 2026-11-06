@@ -4,10 +4,14 @@ Prints the names that change (for the pull request title); writes a markdown tab
 Exit 3 if nothing changes in production.
 """
 import difflib
+import os
 import subprocess
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from describe import explain, headline  # noqa: E402
 
 prod_ref, out = sys.argv[1:]
 
@@ -21,7 +25,7 @@ def name_of(text, path):
     return d.get("name") or (d.get("data") or {}).get("name") or path.rsplit("/", 1)[-1][:-5]
 
 
-rows, names = [], []
+rows, names, details = [], [], {}
 for line in git("diff", "--name-status", f"{prod_ref}..HEAD", "--", "journeys", "connections").splitlines():
     status, path = line.split("\t")[0], line.split("\t")[-1]
     kind = "Journey" if path.startswith("journeys/") else "External connection"
@@ -38,10 +42,14 @@ for line in git("diff", "--name-status", f"{prod_ref}..HEAD", "--", "journeys", 
     elif name_new.startswith("DELETED-") and not name_old.startswith("DELETED-"):
         rows.append(("🗑️ Deleted", kind, name_old, f"renamed `{name_new}` on the prod tenant"))
     else:
-        diff = [l for l in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0)
-                if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-        n = len([l for l in diff if l.startswith("+")]) or len(diff)
-        rows.append(("✏️ Changed", kind, name_new, f"{n} line{'s' if n != 1 else ''} changed"))
+        try:
+            lines = explain(kind, old, new)
+            rows.append(("✏️ Changed", kind, name_new, headline(lines)))
+            details[name_new] = lines
+        except Exception:      # never block a promotion because of the description
+            diff = [l for l in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0)
+                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+            rows.append(("✏️ Changed", kind, name_new, f"{len(diff)} lines changed"))
     names.append(rows[-1][2])
 
 with open(out, "w") as f:
@@ -49,6 +57,9 @@ with open(out, "w") as f:
         f.write(f"**{len(rows)} change{'s' if len(rows) != 1 else ''} for the prod tenant:**\n\n"
                 "| | Type | Name | Details |\n|---|---|---|---|\n")
         f.writelines(f"| {s} | {k} | {n} | {d} |\n" for s, k, n, d in rows)
+        for n, lines in details.items():
+            if lines:
+                f.write(f"\n**{n}**\n\n" + "".join(f"- {l}\n" for l in lines))
     else:
         f.write("**Nothing to deploy:** the prod tenant already runs this version.\n")
 print(", ".join(names))
