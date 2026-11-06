@@ -2,7 +2,8 @@ name: Request prod deploy
 
 # The test team asks for the version on the test tenant to go to production.
 # Optional: only some journeys (by name); the external connections they use come with them. Empty: everything.
-# 1. Checks that the test tenant runs exactly this version of main for those journeys (what was tested is promoted).
+# 1. Works out what changes on the prod tenant, and checks that the test tenant already runs exactly that version
+#    (what was tested is what is promoted).
 # 2. Opens a pull request into the prod branch with what changes on the prod tenant. It is built from prod with only
 #    the chosen journeys (plus the pipeline code: scripts/, terraform/), frozen at the tested commit; later merges
 #    to main are not included.
@@ -68,16 +69,9 @@ jobs:
           if [ -n "$(echo "$JOURNEYS" | tr -d ' ,')" ]; then
             FILES=$(python3 scripts/select_promotion.py "$JOURNEYS")
             echo "Promoting: $(echo $FILES)"
-            echo "DRIFT_ONLY=$(echo $FILES)" >> "$GITHUB_ENV"
+            echo "SELECTED=$(echo $FILES)" >> "$GITHUB_ENV"
           else
             echo "Promoting everything that changed on main"
-          fi
-      - name: The test tenant must run this version
-        run: |
-          bash scripts/tsvm.sh export "$RUNNER_TEMP/test.zip"
-          if ! python3 scripts/drift.py "$RUNNER_TEMP/test.zip"; then
-            echo "::error title=Not tested yet::The test tenant does not run this version of main. Confirm & apply transmit-test first, then request the prod deploy again."
-            exit 1
           fi
       - name: Build the version for prod
         run: |
@@ -89,8 +83,8 @@ jobs:
           # pipeline code from main; the prod tenant's restore requests stay as they are on prod
           git checkout -q "$MAIN" -- .github scripts terraform README.md
           git checkout -q origin/prod -- terraform/restore 2>/dev/null || true
-          if [ -n "${DRIFT_ONLY:-}" ]; then
-            for f in $DRIFT_ONLY; do git checkout -q "$MAIN" -- "$f"; done
+          if [ -n "${SELECTED:-}" ]; then
+            for f in $SELECTED; do git checkout -q "$MAIN" -- "$f"; done
           else
             git rm -rq --ignore-unmatch journeys connections
             git checkout -q "$MAIN" -- journeys
@@ -101,13 +95,22 @@ jobs:
       - name: What changes on the prod tenant
         run: |
           set +e
-          CHANGED=$(python3 scripts/promotion.py origin/prod "$RUNNER_TEMP/changes.md"); rc=$?
+          CHANGED=$(python3 scripts/promotion.py origin/prod "$RUNNER_TEMP/changes.md" "$RUNNER_TEMP/paths.txt"); rc=$?
           set -e
           if [ $rc = 3 ]; then
             cat "$RUNNER_TEMP/changes.md" >> "$GITHUB_STEP_SUMMARY"; echo "Nothing to deploy."; exit 0
           fi
           [ $rc = 0 ] || exit $rc
           echo "CHANGED=$CHANGED" >> "$GITHUB_ENV"
+      - name: Tested on the test tenant
+        if: env.CHANGED != ''
+        run: |
+          # only what changes in production must already run on the test tenant (exactly this version)
+          bash scripts/tsvm.sh export "$RUNNER_TEMP/test.zip"
+          if ! DRIFT_ONLY="$(cat "$RUNNER_TEMP/paths.txt")" GITHUB_STEP_SUMMARY= python3 scripts/drift.py "$RUNNER_TEMP/test.zip"; then
+            echo "::error title=Not tested yet::The test tenant does not run this version of: $CHANGED. Confirm & apply transmit-test first, then request the prod deploy again."
+            exit 1
+          fi
       - name: Open the pull request into prod
         if: env.CHANGED != ''
         run: |
@@ -143,6 +146,8 @@ jobs:
             -d "{\"ref\": \"$BRANCH\"}"
           {
             echo "### Prod deploy requested"
+            echo
+            echo "✅ Tested on the test tenant: $CHANGED"
             echo
             cat "$RUNNER_TEMP/changes.md"
             echo
