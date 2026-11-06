@@ -20,6 +20,7 @@ import difflib
 import glob
 import os
 import re
+import sys
 import zipfile
 
 import yaml
@@ -41,6 +42,62 @@ def entities(folder):
             if re.search(rf"/ido/{folder}/[^/]+\.yaml$", n) and not n.endswith("/manifest.yaml")}
 
 
+# the same "step › field = value" view as the Terraform plan, to describe changes in words
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "terraform"))
+import flatten as _flatten  # noqa: E402
+
+SEP = " › "
+
+
+def fields(kind, text):
+    doc = yaml.safe_load(text) or {}
+    if kind == "Journey":
+        return _flatten.flatten(doc)
+    out = {}
+    _flatten.walk(doc.get("data") or {}, [], out)
+    return out
+
+
+def short(v, n=60):
+    v = str(v).strip()
+    if len(v) > 1 and v[0] == v[-1] == "`":     # journey texts are `template literals`
+        v = v[1:-1]
+    return v if len(v) <= n else v[:n - 1] + "…"
+
+
+def explain(kind, old, new, limit=8):
+    """Changes in words: steps added or removed, then fields changed (old -> new)."""
+    fo, fn = fields(kind, old), fields(kind, new)
+    if kind != "Journey":
+        keys = sorted(set(fo) | set(fn))
+        out = [f"✏️ **{k}**: `{short(fo.get(k, '(none)'))}` → `{short(fn.get(k, '(none)'))}`"
+               for k in keys if fo.get(k) != fn.get(k)]
+        return out[:limit] + ([f"… and {len(out) - limit} more fields"] if len(out) > limit else [])
+    group = lambda d: {k.split(SEP)[0] for k in d}
+    added, removed = group(fn) - group(fo), group(fo) - group(fn)
+
+    def step_text(d, s):
+        parts = [f"{f} `{short(d[k], 40)}`" for f in ("title", "text") for k in [f"{s}{SEP}action{SEP}{f}{SEP}value"] if k in d]
+        return f" ({', '.join(parts)})" if parts else ""
+    out = [f"➕ Added step **{s.split(' #')[0]}**{step_text(fn, s)}" for s in sorted(added)]
+    out += [f"➖ Removed step **{s.split(' #')[0]}**{step_text(fo, s)}" for s in sorted(removed)]
+    changed = [k for k in sorted(set(fo) | set(fn)) if k.split(SEP)[0] not in added | removed and fo.get(k) != fn.get(k)]
+    out += [f"✏️ **{(k.split(' #')[0] + (SEP + k.split(SEP, 1)[1] if SEP in k else '')).replace(SEP + 'action' + SEP, SEP)}**: "
+            f"`{short(fo.get(k, '(none)'))}` → `{short(fn.get(k, '(none)'))}`" for k in changed]
+    return out[:limit] + ([f"… and {len(out) - limit} more changes"] if len(out) > limit else [])
+
+
+def headline(lines):
+    """One short line for the table: '1 step added, 2 fields changed'."""
+    a = sum(l.startswith("➕") for l in lines)
+    r = sum(l.startswith("➖") for l in lines)
+    c = sum(l.startswith("✏️") for l in lines)
+    parts = [f"{a} step{'s' if a != 1 else ''} added" if a else "", f"{r} step{'s' if r != 1 else ''} removed" if r else "",
+             f"{c} field{'s' if c != 1 else ''} changed" if c else ""]
+    return ", ".join(p for p in parts if p) or "formatting only"
+
+
+explanations = {}  # name -> lines, for the summary
 changes = []      # (status, type, name, detail) for the summary
 unchanged = []    # (type, name)
 warnings = []
@@ -55,11 +112,16 @@ def write(path, text, kind, name, detail=""):
         if old is None:
             changes.append(("✨ New", kind, name, detail or f"`{path}`"))
         else:
-            diff = [l for l in difflib.unified_diff(old.splitlines(), text.splitlines(), lineterm="", n=0)
-                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-            lines = len([l for l in diff if l.startswith("+")]) or len(diff)
-            changes.append(("✏️ Changed", kind, name, f"{lines} line{'s' if lines != 1 else ''} changed" +
-                            (f"; {detail}" if detail else "")))
+            try:
+                lines = explain(kind, old, text)
+                summary_line = headline(lines)
+            except Exception as e:     # never block a capture because of the description
+                print(f"::warning::could not describe the changes of {path}: {e}")
+                diff = [l for l in difflib.unified_diff(old.splitlines(), text.splitlines(), lineterm="", n=0)
+                        if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+                lines, summary_line = [], f"{len(diff)} lines changed"
+            explanations[name] = lines
+            changes.append(("✏️ Changed", kind, name, summary_line + (f"; {detail}" if detail else "")))
     else:
         print(f"same    {path}")
         if not name.startswith(PREFIX_DELETED):   # journeys deleted earlier are not worth listing
@@ -167,6 +229,9 @@ if a.summary:
             f.write(f"**{len(changes)} change{'s' if len(changes) != 1 else ''}** to bring into Git:\n\n"
                     "| | Type | Name | Details |\n|---|---|---|---|\n")
             f.writelines(f"| {st} | {k} | {n} | {d} |\n" for st, k, n, d in changes)
+            for n, lines in explanations.items():
+                if lines:
+                    f.write(f"\n**{n}**\n\n" + "".join(f"- {l}\n" for l in lines))
         else:
             f.write("**No changes:** everything in Git matches the dev tenant.\n")
         if unchanged:
@@ -177,3 +242,7 @@ if a.summary:
                 f"{len(c)} external connection{'s' if len(c) != 1 else ''} ({', '.join(c)})" if c else "") if x) + "\n")
         if warnings:
             f.write("\n**Warnings:**\n\n" + "".join(f"- {w}\n" for w in warnings))
+    # one line for the annotation at the top of the run page
+    with open(a.summary + ".headline", "w") as f:
+        f.write("; ".join(f"{n}: {d}" if st.startswith("✏️") else f"{n} ({st.split(' ', 1)[1].lower()})"
+                          for st, k, n, d in changes))
