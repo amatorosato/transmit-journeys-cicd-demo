@@ -1,6 +1,7 @@
 """What a promotion to prod changes: compares the prod branch with the version being promoted.
-Usage: python3 scripts/promotion.py <prod-ref> <summary.md>   (run on the commit being promoted)
-Prints the names that change (for the pull request title); writes a markdown table to <summary.md>.
+Usage: python3 scripts/promotion.py <prod-ref> <summary.md> [paths.txt]   (run on the commit being promoted)
+Prints the names that change (for the pull request title); writes a markdown table to <summary.md>, and the files
+that change (and still exist) to [paths.txt], for the "tested on the test tenant" check.
 Exit 3 if nothing changes in production.
 """
 import difflib
@@ -13,7 +14,9 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from describe import explain, headline  # noqa: E402
 
-prod_ref, out = sys.argv[1:]
+prod_ref, out = sys.argv[1:3]
+paths_out = sys.argv[3] if len(sys.argv) > 3 else ""
+paths = []
 
 
 def git(*args):
@@ -51,6 +54,8 @@ for line in git("diff", "--name-status", f"{prod_ref}..HEAD", "--", "journeys", 
                     if l[:1] in "+-" and not l.startswith(("+++", "---"))]
             rows.append(("✏️ Changed", kind, name_new, f"{len(diff)} lines changed"))
     names.append(rows[-1][2])
+    if status != "D":
+        paths.append(path)
 
 with open(out, "w") as f:
     if rows:
@@ -62,5 +67,7 @@ with open(out, "w") as f:
                 f.write(f"\n**{n}**\n\n" + "".join(f"- {l}\n" for l in lines))
     else:
         f.write("**Nothing to deploy:** the prod tenant already runs this version.\n")
+if paths_out:
+    open(paths_out, "w").write(" ".join(paths))
 print(", ".join(names))
 sys.exit(0 if rows else 3)
