@@ -20,6 +20,7 @@ import difflib
 import glob
 import os
 import re
+import sys
 import zipfile
 
 import yaml
@@ -41,6 +42,10 @@ def entities(folder):
             if re.search(rf"/ido/{folder}/[^/]+\.yaml$", n) and not n.endswith("/manifest.yaml")}
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from describe import explain, headline  # noqa: E402
+
+explanations = {}  # name -> lines, for the summary
 changes = []      # (status, type, name, detail) for the summary
 unchanged = []    # (type, name)
 warnings = []
@@ -55,11 +60,16 @@ def write(path, text, kind, name, detail=""):
         if old is None:
             changes.append(("✨ New", kind, name, detail or f"`{path}`"))
         else:
-            diff = [l for l in difflib.unified_diff(old.splitlines(), text.splitlines(), lineterm="", n=0)
-                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-            lines = len([l for l in diff if l.startswith("+")]) or len(diff)
-            changes.append(("✏️ Changed", kind, name, f"{lines} line{'s' if lines != 1 else ''} changed" +
-                            (f"; {detail}" if detail else "")))
+            try:
+                lines = explain(kind, old, text)
+                summary_line = headline(lines)
+            except Exception as e:     # never block a capture because of the description
+                print(f"::warning::could not describe the changes of {path}: {e}")
+                diff = [l for l in difflib.unified_diff(old.splitlines(), text.splitlines(), lineterm="", n=0)
+                        if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+                lines, summary_line = [], f"{len(diff)} lines changed"
+            explanations[name] = lines
+            changes.append(("✏️ Changed", kind, name, summary_line + (f"; {detail}" if detail else "")))
     else:
         print(f"same    {path}")
         if not name.startswith(PREFIX_DELETED):   # journeys deleted earlier are not worth listing
@@ -167,6 +177,9 @@ if a.summary:
             f.write(f"**{len(changes)} change{'s' if len(changes) != 1 else ''}** to bring into Git:\n\n"
                     "| | Type | Name | Details |\n|---|---|---|---|\n")
             f.writelines(f"| {st} | {k} | {n} | {d} |\n" for st, k, n, d in changes)
+            for n, lines in explanations.items():
+                if lines:
+                    f.write(f"\n**{n}**\n\n" + "".join(f"- {l}\n" for l in lines))
         else:
             f.write("**No changes:** everything in Git matches the dev tenant.\n")
         if unchanged:
@@ -177,3 +190,7 @@ if a.summary:
                 f"{len(c)} external connection{'s' if len(c) != 1 else ''} ({', '.join(c)})" if c else "") if x) + "\n")
         if warnings:
             f.write("\n**Warnings:**\n\n" + "".join(f"- {w}\n" for w in warnings))
+    # one line for the annotation at the top of the run page
+    with open(a.summary + ".headline", "w") as f:
+        f.write("; ".join(f"{n}: {d}" if st.startswith("✏️") else f"{n} ({st.split(' ', 1)[1].lower()})"
+                          for st, k, n, d in changes))
