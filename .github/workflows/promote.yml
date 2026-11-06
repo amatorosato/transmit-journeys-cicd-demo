@@ -1,0 +1,114 @@
+name: Request prod deploy
+
+# The test team asks for the version on the test tenant to go to production.
+# 1. Checks that the test tenant runs exactly this version of main (what was tested is what is promoted).
+# 2. Opens a pull request into the prod branch with what changes on the prod tenant. The content is frozen at the
+#    tested commit (branch promote/prod-<run>), later merges to main are not included.
+# 3. Optional maintenance window: the "Prod maintenance window" workflow merges the pull request at that time.
+# After the merge, HCP Terraform (transmit-prod follows the prod branch) plans: Confirm & apply.
+on:
+  workflow_dispatch:
+    inputs:
+      window:
+        description: "Maintenance window, UTC, e.g. 2026-11-08 22:00 (empty: merge by hand)"
+        required: false
+        default: ""
+      note:
+        description: "Note for the approvers (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  request:
+    runs-on: ubuntu-24.04
+    environment: test-readonly
+    env:
+      TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
+      TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
+      TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
+      TS_REGION: us
+      TS_STAGE: test
+      GH_TOKEN: ${{ github.token }}
+      WINDOW: ${{ inputs.window }}
+      NOTE: ${{ inputs.note }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
+      - name: Check the maintenance window
+        run: |
+          python3 - <<'PY'
+          import datetime, os, sys
+          w = os.environ["WINDOW"].strip()
+          if w:
+              try:
+                  t = datetime.datetime.strptime(w, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc)
+              except ValueError:
+                  sys.exit(f"::error::Maintenance window '{w}': use YYYY-MM-DD HH:MM (UTC)")
+              if t < datetime.datetime.now(datetime.timezone.utc):
+                  sys.exit(f"::error::Maintenance window {w} UTC is in the past")
+              open(os.environ["GITHUB_ENV"], "a").write(f"WINDOW_ISO={t.strftime('%Y-%m-%dT%H:%MZ')}\n")
+          PY
+      - name: The test tenant must run this version
+        run: |
+          bash scripts/tsvm.sh export "$RUNNER_TEMP/test.zip"
+          if ! python3 scripts/drift.py "$RUNNER_TEMP/test.zip"; then
+            echo "::error title=Not tested yet::The test tenant does not run this version of main. Confirm & apply transmit-test first, then request the prod deploy again."
+            exit 1
+          fi
+      - name: What changes on the prod tenant
+        run: |
+          set +e
+          CHANGED=$(python3 scripts/promotion.py origin/prod "$RUNNER_TEMP/changes.md"); rc=$?
+          set -e
+          if [ $rc = 3 ]; then
+            cat "$RUNNER_TEMP/changes.md" >> "$GITHUB_STEP_SUMMARY"; echo "Nothing to deploy."; exit 0
+          fi
+          [ $rc = 0 ] || exit $rc
+          echo "CHANGED=$CHANGED" >> "$GITHUB_ENV"
+      - name: Open the pull request into prod
+        if: env.CHANGED != ''
+        run: |
+          SHA=$(git rev-parse HEAD)
+          BRANCH="promote/prod-${{ github.run_id }}"
+          git push -q origin "HEAD:refs/heads/$BRANCH"
+          python3 - "$BRANCH" "$SHA" "${{ github.actor }}" "$RUNNER_TEMP/changes.md" > pr.json <<'PY'
+          import json, os, sys, datetime
+          branch, sha, actor, changes = sys.argv[1:]
+          changed, window, wiso, note = (os.environ.get(k, "") for k in ("CHANGED", "WINDOW", "WINDOW_ISO", "NOTE"))
+          now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+          body = (f"**Prod deploy requested by @{actor}.**" + (f"\n\n> {note}" if note.strip() else "") + "\n\n"
+                  f"Tested: the test tenant runs this version (commit `{sha[:7]}`, checked {now}).\n\n"
+                  + open(changes).read() + "\n")
+          if wiso:
+              body += (f"### Maintenance window: {window} UTC\n\n<!-- window: {wiso} -->\n"
+                       "The *Prod maintenance window* workflow merges this pull request at that time (if the checks are "
+                       "green). Then, in HCP Terraform, **Confirm & apply** on `transmit-prod`.\n")
+          else:
+              body += ("### Next steps\n\nMerge when ready, then in HCP Terraform **Confirm & apply** on "
+                       "`transmit-prod`.\n")
+          title = f"Deploy to prod: {changed}" + (f" (window {window} UTC)" if wiso else "")
+          print(json.dumps({"title": title, "head": branch, "base": "prod", "body": body}))
+          PY
+          API="https://api.github.com/repos/${{ github.repository }}"
+          URL=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" "$API/pulls" --data @pr.json \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["html_url"])')
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows: start the check explicitly
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" "$API/actions/workflows/pr.yml/dispatches" \
+            -d "{\"ref\": \"$BRANCH\"}"
+          {
+            echo "### Prod deploy requested"
+            echo
+            cat "$RUNNER_TEMP/changes.md"
+            echo
+            if [ -n "${WINDOW_ISO:-}" ]; then echo "**Maintenance window:** $WINDOW UTC (merged automatically)"; echo; fi
+            echo "**Pull request:** $URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Pull request: $URL"

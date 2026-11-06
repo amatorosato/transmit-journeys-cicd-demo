@@ -34,6 +34,8 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | **Deploy (manual fallback)** (`deploy.yml`) | on demand only (deploys are done by HCP Terraform) | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant and copies into Git the journeys changed in the console (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`) and their **external connections** (`connections/<id>.yaml`: the ones already in Git, the ones you name, and every connection the journeys use). Opens a PR, lists the secrets (credential aliases) the connections need on the test and prod tenants, and starts its check. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it opens a **restore pull request** (`restore/<stage>-tenant`, updated while open) with the diff. It only changes `terraform/restore/<stage>`: once merged, `transmit-<stage>` deploys the Git version again (Confirm & apply), the other workspaces plan no changes. |
+| **Request prod deploy** (`promote.yml`) | on demand (Run workflow), by the test team | checks that the test tenant runs this version of `main`, then opens a pull request into the **`prod` branch** with what changes on the prod tenant (content frozen at the tested commit). Optional **maintenance window** (UTC). |
+| **Prod maintenance window** (`prod-window.yml`) | every 15 minutes + on demand | merges the pull requests into `prod` whose maintenance window has come (checks green). Then Confirm & apply on `transmit-prod`. |
 
 Notes:
 - Transmit's validate answers HTTP 201 even when it finds problems; the scripts read `status` in the body.
@@ -50,13 +52,14 @@ Deploys are done by HCP Terraform (organization `amato-transmit-demo`). The same
 |---|---|---|---|
 | `transmit-dev` | amato-rosato-sbx-demo | dev | sbx |
 | `transmit-test` | telco-demo-tenant | test | us |
-| `transmit-prod` | Vodafone-CIAM-POC | production | eu |
+| `transmit-prod` (VCS branch **`prod`**) | Vodafone-CIAM-POC | production | eu |
 
 Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import with rollback, check that the tenant matches Git).
 
 - **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, and only the fields that change, e.g. `~ "Display Information #a57b0299 › action › title › value" = "`Signed in`" -> "`Welcome back`"` (`terraform/flatten.py` turns each journey into readable *step › field* lines; form fields are listed by name).
-- **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply). `transmit-test` and `transmit-prod` plan and wait: **Confirm & apply** is the approval.
-- **Promotion gate:** before importing, `transmit-test` checks that amato-rosato-sbx-demo already has exactly this version, and `transmit-prod` checks telco-demo-tenant. If not, the apply is refused (*Apply transmit-dev first*), so the order dev → test → prod is enforced.
+- **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply), `transmit-test` plans and waits: **Confirm & apply** is the approval. Production is not touched: `transmit-prod` follows the `prod` branch.
+- **Promotion to prod:** the test team runs **Request prod deploy** (optionally with a maintenance window). It opens a pull request `main` → `prod`; once merged (by hand or in the window), `transmit-prod` plans: **Confirm & apply**.
+- **Promotion gate:** before importing, `transmit-test` checks that the dev tenant already has exactly this version; if not, the apply is refused (*Apply transmit-dev first*). For prod the check is done when the deploy is requested: *Request prod deploy* refuses if the test tenant does not run that version.
 - Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**`, `journeys/**` and `connections/**`, automatic speculative plans on.
 - Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables. On `transmit-test` and `transmit-prod`, the same for the previous stage with the `PREV_` prefix (`PREV_TS_TENANT_ID`, …, `PREV_TS_CLIENT_SECRET`).
 - External connections in `connections/` are deployed with the journeys and shown in the plan the same way (`terraform_data.connection["<name>"]`, e.g. `config › web_request › uri › value`). Their secrets are not exported: the credential aliases must exist on every tenant.
@@ -87,12 +90,12 @@ journeys stay out of the repo. Deleting a journey is a manual step (the pipeline
    calls a sub-journey that does not exist on the tenant → validate fails with `MISSING_DEPENDENCIES`,
    the check is red, merge is blocked. Optional: `demo/broken-empty-package` (all journeys deleted by
    mistake) → the guard answers `REFUSED`. *"Errors stop before production."*
-4. **Merge and promotion with approval (5 min).** Merge the good PR. In HCP Terraform, the three
-   workspaces plan the same commit: `transmit-dev` applies by itself (backup, import, verify) and the
-   plans of `transmit-test` and `transmit-prod` show the changed lines. **Confirm & apply** on
-   `transmit-test`, then on `transmit-prod`. Optional: confirm `transmit-prod` first and show the refusal
-   (*Apply transmit-test first*). Show the new title in the form builder
-   or with the console's *Test journey*. *"Your Terraform pipeline, your approvals, one artifact."*
+4. **Merge, test, and promotion to prod (6 min).** Merge the good PR. In HCP Terraform `transmit-dev` applies
+   by itself and `transmit-test` waits: **Confirm & apply**. Production does not move. Then, as the test team:
+   **Actions → Request prod deploy → Run workflow**, optionally with a maintenance window a few minutes ahead.
+   It checks the test tenant and opens the pull request **Deploy to prod: …** with what changes. Merge it (or let
+   **Prod maintenance window** merge it at the set time), then **Confirm & apply** on `transmit-prod`.
+   *"Each environment moves on its own request and approval, and production can wait for its window."*
 5. **Drift and console edits (3 min).** Change the form title of `CICD-Demo-Login` in the form builder of
    the prod tenant, then run **Drift check** manually: **Drift on prod tenant** is red, shows the changed
    line, and opens the pull request **Restore the Git version on the prod tenant**. Merge it: in HCP,

@@ -6,7 +6,7 @@ name: PR check
 # trigger pull_request workflows), so the captured PR gets its "validate" check too.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, prod]
   workflow_dispatch:
 
 jobs:
