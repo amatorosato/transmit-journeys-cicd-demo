@@ -17,8 +17,12 @@ STAGE=${TS_STAGE/production/prod} PREV_STAGE=${PREV_TS_STAGE:-}
 PREV_STAGE=${PREV_STAGE/production/prod}
 echo "== Deploying to the $STAGE tenant"
 
-# Promotion gate: the previous stage must already run exactly this version
-if [ -n "${PREV_TS_TENANT_ID:-}" ]; then
+# Promotion gate: the previous stage must already run exactly this version. For prod the check is done when the
+# deploy is requested ("Request prod deploy" checks the test tenant), because by deploy time the test tenant may
+# already run newer versions of main.
+if [ "$STAGE" = prod ]; then
+  echo "== Promotion gate: checked when the prod deploy was requested (the test tenant ran this version)"
+elif [ -n "${PREV_TS_TENANT_ID:-}" ]; then
   : "${PREV_TS_CLIENT_ID:?missing: add PREV_TS_CLIENT_ID in the HCP workspace as an Environment variable (sensitive)}"
   : "${PREV_TS_CLIENT_SECRET:?missing: add PREV_TS_CLIENT_SECRET in the HCP workspace as an Environment variable (sensitive)}"
   echo "== Promotion gate: the $PREV_STAGE tenant must already have this version"

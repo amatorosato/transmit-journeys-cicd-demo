@@ -1,0 +1,64 @@
+name: Prod maintenance window
+
+# Every 15 minutes (and on demand): merges the pull requests into prod whose maintenance window has come
+# (opened by "Request prod deploy" with a window). Merged only if the checks are green. After the merge, HCP
+# Terraform (transmit-prod) plans the deploy: Confirm & apply.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  window:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      API: https://api.github.com/repos/${{ github.repository }}
+    steps:
+      - name: Merge the pull requests whose window has come
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, re, urllib.request
+
+          api, token = os.environ["API"], os.environ["GH_TOKEN"]
+
+          def call(method, url, data=None):
+              req = urllib.request.Request(url, method=method, data=json.dumps(data).encode() if data else None,
+                                           headers={"Authorization": f"Bearer {token}",
+                                                    "Accept": "application/vnd.github+json"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return r.status, json.loads(r.read() or b"{}")
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read() or b"{}")
+
+          now = datetime.datetime.now(datetime.timezone.utc)
+          _, prs = call("GET", f"{api}/pulls?state=open&base=prod&per_page=50")
+          summary = []
+          for pr in prs:
+              m = re.search(r"<!-- window: (\S+) -->", pr.get("body") or "")
+              if not m:
+                  continue
+              when = datetime.datetime.strptime(m.group(1), "%Y-%m-%dT%H:%MZ").replace(tzinfo=datetime.timezone.utc)
+              if when > now:
+                  summary.append(f"- #{pr['number']} waits for its window: {when:%Y-%m-%d %H:%M} UTC")
+                  continue
+              code, res = call("PUT", f"{api}/pulls/{pr['number']}/merge",
+                               {"merge_method": "merge",
+                                "commit_title": f"Deploy to prod in the maintenance window ({when:%Y-%m-%d %H:%M} UTC)"})
+              if code == 200:
+                  call("POST", f"{api}/issues/{pr['number']}/comments",
+                       {"body": f"Merged in the maintenance window ({now:%Y-%m-%d %H:%M} UTC). In HCP Terraform, "
+                                "**Confirm & apply** on `transmit-prod`."})
+                  summary.append(f"- #{pr['number']} merged (window {when:%Y-%m-%d %H:%M} UTC): Confirm & apply on transmit-prod")
+              else:
+                  print(f"::warning::#{pr['number']} not merged: {res.get('message')}")
+                  summary.append(f"- #{pr['number']} NOT merged: {res.get('message')} (checks not green or not mergeable)")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("### Prod maintenance window\n\n" + ("\n".join(summary) if summary else "Nothing scheduled.") + "\n")
+          print("\n".join(summary) or "Nothing scheduled.")
+          PY

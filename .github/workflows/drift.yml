@@ -1,6 +1,7 @@
 name: Drift check
 
-# Nightly (and on demand): export the test and prod tenants and compare the journeys with Git.
+# Nightly (and on demand): export the test and prod tenants and compare the journeys with Git (test: main,
+# prod: the prod branch, which the prod tenant follows).
 # The dev tenant is left out on purpose: designers work there (Capture from dev).
 # Git always wins: when a tenant differs (edited in the console, or the latest version not applied), the
 # check opens a restore pull request (branch restore/<stage>-tenant, updated while open). It only changes
@@ -25,8 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { stage: test, environment: test-readonly, region: us }
-          - { stage: prod, environment: prod-readonly, region: eu }
+          - { stage: test, environment: test-readonly, region: us, branch: main }
+          - { stage: prod, environment: prod-readonly, region: eu, branch: prod }
     environment: ${{ matrix.environment }}
     env:
       TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
@@ -35,8 +36,11 @@ jobs:
       TS_REGION: ${{ matrix.region }}
       TS_STAGE: ${{ matrix.stage }}
       DRIFT_REPORT: drift-report.md   # in the workspace, never committed
+      BASE_BRANCH: ${{ matrix.branch }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.branch }}   # the prod tenant follows the prod branch
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
       - name: Export tenant
         run: bash scripts/tsvm.sh export "$RUNNER_TEMP/live.zip"
@@ -59,7 +63,7 @@ jobs:
           git push -q -f origin "$BRANCH"
           RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           python3 - "$TS_STAGE" "$NAMES" "$RUN" "$BRANCH" "$DRIFT_REPORT" > pr.json <<'PY'
-          import json, sys
+          import json, os, sys
           stage, names, run, branch, report = sys.argv[1:]
           body = (f"The [drift check]({run}) found journeys on the **{stage} tenant** that differ from Git: "
                   f"{names}. They were edited in the console, or the latest version is not applied there yet.\n\n"
@@ -70,7 +74,7 @@ jobs:
                   f"While this pull request is open, the nightly drift check updates it instead of opening a new one.\n\n"
                   f"### What differs on the {stage} tenant (- Git, + {stage} tenant)\n\n" + open(report).read())
           print(json.dumps({"title": f"Restore the Git version on the {stage} tenant ({names})",
-                            "head": branch, "base": "main", "body": body[:60000]}))
+                            "head": branch, "base": os.environ["BASE_BRANCH"], "body": body[:60000]}))
           PY
           API="https://api.github.com/repos/${{ github.repository }}"
           OPEN=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
