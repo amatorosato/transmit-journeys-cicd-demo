@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Called by terraform/main.tf on apply. Same steps as the GitHub Deploy workflow.
+# Called by terraform/main.tf on apply: backup, guard, validate, import with rollback, check the tenant matches Git.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${TS_CLIENT_ID:?missing: add TS_CLIENT_ID in the HCP workspace as an Environment variable (sensitive)}"
