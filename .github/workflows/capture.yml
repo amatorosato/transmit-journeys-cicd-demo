@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       journeys:
-        description: "Extra journey ids to capture, comma separated (optional)"
+        description: "Journeys to capture, by name (as in the console) or id, comma separated (optional)"
         required: false
         default: ""
       prefix:
-        description: "Also capture every journey whose id starts with"
+        description: "Also capture every journey whose name or id starts with"
         required: false
         default: "CICD-"
       connections:
