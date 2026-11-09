@@ -48,7 +48,7 @@ versions:
     version_id: default_version
     state: version
     desc: default_version
-name: JourneyTest
+name: DELETED-JourneyTest
 created_date: 1793913578359
 type: anonymous
 config:
