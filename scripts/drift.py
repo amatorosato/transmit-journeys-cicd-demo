@@ -3,6 +3,7 @@ Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
 Git always wins: when a journey differs, the drift workflow opens a restore pull request; once merged, HCP
 Terraform deploys the Git version again on that tenant (after Confirm & apply).
+DRIFT_FIX (optional): what to do, in the messages (default: the restore pull request).
 DRIFT_REPORT (optional): markdown file with the journeys that differ and their diff, for the pull request.
 Optional env: TS_STAGE (dev, test, prod: messages say "the test tenant"), GITHUB_STEP_SUMMARY (set by GitHub
 Actions: a summary table is written there).
@@ -49,7 +50,8 @@ def main(export_zip):
     stage = {"production": "prod"}.get(os.environ.get("TS_STAGE", ""), os.environ.get("TS_STAGE"))
     tenant = f"the {stage} tenant" if stage else "the tenant"
     workspace = f"transmit-{stage}" if stage else "the Terraform workspace"
-    fix = f"Merge the restore pull request, then Confirm & apply in {workspace}: the Git version is put back"
+    fix = os.environ.get("DRIFT_FIX") or \
+        f"Merge the restore pull request, then Confirm & apply in {workspace}: the Git version is put back"
     report = []
     z = zipfile.ZipFile(export_zip)
     # journeys/ <-> ido/journeys, connections/ <-> ido/external-connections
