@@ -1,17 +1,17 @@
 # Transmit journeys — CI/CD demo
 
-Transmit journeys kept in Git and promoted between tenants by GitHub Actions, using the
-Version Management API (export / validate / import). No Terraform, no extra servers.
+Transmit journeys kept in Git and promoted between tenants with the Version Management API
+(export / validate / import). **HCP Terraform deploys** (one workspace per tenant, approvals with Confirm & apply);
+**GitHub Actions** checks pull requests, captures console changes, requests prod deploys and watches for drift.
 
-| GitHub environment | Tenant | Role in the demo |
+| GitHub environment | Tenant | Used by |
 |---|---|---|
-| `dev` | amato-rosato-sbx-demo (region `sbx`) | development: designers work here, every PR is validated here, every merge deploys here |
-| `test` | telco-demo-tenant (region `us`) | test: deploy only after approval (required reviewers) |
-| `prod` | Vodafone-CIAM-POC (region `eu`) | **production**: deploy only after a second approval |
-| `test-readonly` | same tenant as `test`, no approval | used only by the drift check, which never changes the tenant |
-| `prod-readonly` | same tenant as `prod`, no approval | used only by the drift check |
+| `dev` | dev tenant: amato-rosato-sbx-demo (region `sbx`) | PR check (validate only) and Capture from dev (export) |
+| `test-readonly` | test tenant: telco-demo-tenant (region `us`) | drift check and Request prod deploy (export only) |
+| `prod-readonly` | prod tenant: Vodafone-CIAM-POC (region `eu`) | drift check (export only) |
 
-All jobs run on GitHub's runners (the three tenants have public APIs).
+GitHub never imports into a tenant: deploys are done only by HCP Terraform (see below). All jobs run on GitHub's
+runners (the three tenants have public APIs).
 
 ## Repository
 
@@ -23,7 +23,8 @@ scripts/tsvm.sh      build / validate / import / export
 scripts/guard.py     safety + structure checks (refuses empty or non-selective packages)
 scripts/drift.py     compares Git with a tenant export
 scripts/capture.py   copies journeys from a tenant export into journeys/ (console -> Git)
-.github/workflows/   pr.yml, deploy.yml (+ _deploy.yml), drift.yml, capture.yml
+.github/workflows/   pr.yml, capture.yml, drift.yml, promote.yml, prod-window.yml
+terraform/           HCP Terraform: main.tf, deploy.sh, flatten.py, restore/
 ```
 
 ## Pipeline
@@ -31,7 +32,6 @@ scripts/capture.py   copies journeys from a tenant export into journeys/ (consol
 | Workflow | When | What |
 |---|---|---|
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
-| **Deploy (manual fallback)** (`deploy.yml`) | on demand only (deploys are done by HCP Terraform) | `dev`: backup export → validate → import with rollback → verify. Then **waits for approval** and repeats on `test`, then waits for a second approval and repeats on `prod`, always with the same commit. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant and copies into Git the journeys changed in the console (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`) and their **external connections** (`connections/<id>.yaml`: the ones already in Git, the ones you name, and every connection the journeys use). Opens a PR, lists the secrets (credential aliases) the connections need on the test and prod tenants, and starts its check. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it opens a **restore pull request** (`restore/<stage>-tenant`, updated while open) with the diff. It only changes `terraform/restore/<stage>`: once merged, `transmit-<stage>` deploys the Git version again (Confirm & apply), the other workspaces plan no changes. |
 | **Request prod deploy** (`promote.yml`) | on demand (Run workflow), by the test team | optionally for **some journeys only** (by name; the connections they use come with them). Checks that the test tenant runs that version of `main`, then opens a pull request into the **`prod` branch** with what changes on the prod tenant, described in words (content frozen at the tested commit; other changes stay on test). Optional **maintenance window** (UTC). |
@@ -42,7 +42,7 @@ Notes:
 - Validate checks versions and dependencies (e.g. a missing sub-journey), not the content of each step;
   `guard.py` adds structural checks.
 - Imports are always **selective**: only the journeys in the package are touched.
-- The backup of each tenant is kept as a workflow artifact for 90 days.
+- Every deploy exports the tenant just before importing (a backup, also used to keep the tenant's application metadata in the package). On HCP Terraform it lives only for the run; the import rolls back by itself if it fails.
 
 ## Terraform (HCP Terraform)
 
@@ -54,7 +54,7 @@ Deploys are done by HCP Terraform (organization `amato-transmit-demo`). The same
 | `transmit-test` | telco-demo-tenant | test | us |
 | `transmit-prod` (VCS branch **`prod`**) | Vodafone-CIAM-POC | production | eu |
 
-Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub pipeline (backup, guard, validate, import with rollback, check that the tenant matches Git).
+Transmit has no Terraform provider: Terraform tracks one entry per journey and, on apply, runs `terraform/deploy.sh`, which uses the same scripts as the GitHub checks (backup, guard, validate, import with rollback, check that the tenant matches Git).
 
 - **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, and only the fields that change, e.g. `~ "Display Information #a57b0299 › action › title › value" = "`Signed in`" -> "`Welcome back`"` (`terraform/flatten.py` turns each journey into readable *step › field* lines; form fields are listed by name).
 - **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply), `transmit-test` plans and waits: **Confirm & apply** is the approval. Production is not touched: `transmit-prod` follows the `prod` branch.
