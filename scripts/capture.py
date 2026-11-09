@@ -1,7 +1,7 @@
 """Copy journeys and external connections from a tenant export into Git (console -> Git).
 
-Journeys captured: every journey already in journeys/, the journeys named with --journeys, and every journey whose
-id starts with --prefix.
+Journeys captured: every journey already in journeys/, the journeys asked for with --journeys (by name as in the
+console, or by id; case-insensitive), and every journey whose name or id starts with --prefix.
 External connections captured (into connections/<provider_id>.yaml): every connection already in connections/, the
 ones named with --connections (name or id), and every connection used by a journey in journeys/ (web request
 functions are called by name: `ns: webrequests`, `function: <name>`; other connections by their id).
@@ -11,7 +11,7 @@ its file becomes a tombstone renamed DELETED-<name> (only the `name:` line chang
 merged, it is promoted dev -> test -> prod like any change, so the journey is renamed on every tenant instead of deleted. Connections in Git
 but missing on the tenant are reported, never deleted. Secrets are not exported: connections refer to
 credentials by alias, which must exist on every tenant the connection is deployed to; they are listed in --notes.
-Usage: python3 scripts/capture.py <export.zip> [--journeys "A,B"] [--prefix CICD-] [--connections "X,Y"]
+Usage: python3 scripts/capture.py <export.zip> [--journeys "Name A, id-b"] [--prefix CICD-] [--connections "X,Y"]
                                   [--notes notes.md] [--summary summary.md]
 --summary: markdown report of what was found (new, changed, deleted, unchanged), for the run page and the pull request.
 """
@@ -84,9 +84,23 @@ def split(value):
 PREFIX_DELETED = "DELETED-"
 deleted = []   # (old name, new name)
 live = entities("journeys")
-wanted = {os.path.basename(p)[:-5] for p in glob.glob("journeys/*.yaml")} | split(a.journeys)
+live_name = {j: (yaml.safe_load(z.read(n)) or {}).get("name") or j for j, n in live.items()}   # id -> name
+in_git = {os.path.basename(p)[:-5] for p in glob.glob("journeys/*.yaml")}
+wanted = set(in_git)
+for x in split(a.journeys):
+    by_id = [j for j in live if j.lower() == x.lower()] or [j for j in in_git if j.lower() == x.lower()]
+    by_name = [j for j, n in live_name.items() if n.lower() == x.lower()]
+    found = by_id or by_name
+    if not found:
+        print(f"::warning::journey {x}: not on the dev tenant (by name or id)")
+        warnings.append(f"Journey `{x}` was requested, but no journey with that name or id is on the dev tenant.")
+    elif len(found) > 1:
+        warnings.append(f"{len(found)} journeys on the dev tenant are named `{x}`: all of them are captured "
+                        f"(ids: {', '.join(sorted(found))}).")
+    wanted |= set(found)
 if a.prefix:
-    wanted |= {j for j in live if j.startswith(a.prefix)}
+    p = a.prefix.lower()
+    wanted |= {j for j in live if j.lower().startswith(p) or live_name[j].lower().startswith(p)}
 os.makedirs("journeys", exist_ok=True)
 for j in sorted(wanted):
     if j not in live:
