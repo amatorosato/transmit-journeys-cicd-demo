@@ -42,7 +42,7 @@ jobs:
         run: |
           bash scripts/tsvm.sh export "$RUNNER_TEMP/tenant.zip"
           python3 scripts/status.py collect "$RUNNER_TEMP/tenant.zip" "$RUNNER_TEMP/${{ matrix.stage }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: status-${{ matrix.stage }}
           path: ${{ runner.temp }}/${{ matrix.stage }}
@@ -59,7 +59,7 @@ jobs:
           ref: main
       - run: git fetch -q origin prod:refs/remotes/origin/prod
       - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/tenants
       - name: Compare the tenants
