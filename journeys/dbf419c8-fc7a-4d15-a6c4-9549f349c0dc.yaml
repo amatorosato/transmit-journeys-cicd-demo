@@ -33,6 +33,29 @@ versions:
                 should_customize_report: false
             type: action
         - data:
+            ui_name: Display Information
+            id: 4cb81c5b-9305-414c-81c5-e9305b414cb8
+            strings: []
+            action:
+              metadata:
+                type: information
+              text:
+                type: expression
+                value: '`Changed in the Console`'
+              button_text:
+                type: expression
+                value: '`OK`'
+              title:
+                type: expression
+                value: '`Information`'
+              type: information
+              parameters: []
+            step_reporting:
+              - should_report: false
+                report_name: step_completed
+                should_customize_report: false
+            type: action
+        - data:
             ui_name: Complete Journey
             id: bfc619af-58be-40bf-a19a-958be240bfc6
             strings: []
