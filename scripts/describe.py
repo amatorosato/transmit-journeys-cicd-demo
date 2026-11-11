@@ -45,7 +45,9 @@ def explain(kind, old, new, limit=8):
     out = [f"➕ Added step **{s.split(' #')[0]}**{step_text(fn, s)}" for s in sorted(added)]
     out += [f"➖ Removed step **{s.split(' #')[0]}**{step_text(fo, s)}" for s in sorted(removed)]
     changed = [k for k in sorted(set(fo) | set(fn)) if k.split(SEP)[0] not in added | removed and fo.get(k) != fn.get(k)]
-    out += [f"✏️ **{(k.split(' #')[0] + (SEP + k.split(SEP, 1)[1] if SEP in k else '')).replace(SEP + 'action' + SEP, SEP)}**: "
+    # "Display Information #a57b0299 › action › title" -> "Display Information › title"; journey fields stay as they are
+    label = lambda k: (k.split(' #')[0] + (SEP + k.split(SEP, 1)[1] if SEP in k else '') if ' #' in k else k)
+    out += [f"✏️ **{label(k).replace(SEP + 'action' + SEP, SEP)}**: "
             f"`{short(fo.get(k, '(none)'))}` → `{short(fn.get(k, '(none)'))}`" for k in changed]
     return out[:limit] + ([f"… and {len(out) - limit} more changes"] if len(out) > limit else [])
 

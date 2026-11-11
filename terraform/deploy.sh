@@ -29,8 +29,10 @@ elif [ -n "${PREV_TS_TENANT_ID:-}" ]; then
   if ! ( export TS_CLIENT_ID="$PREV_TS_CLIENT_ID" TS_CLIENT_SECRET="$PREV_TS_CLIENT_SECRET" \
            TS_TENANT_ID="$PREV_TS_TENANT_ID" TS_REGION="$PREV_TS_REGION" \
            TS_TENANT_NAME="$PREV_TS_TENANT_NAME" TS_STAGE="$PREV_TS_STAGE"
-         bash scripts/tsvm.sh export "$WORK/previous.zip" && python3 scripts/drift.py "$WORK/previous.zip" ); then
-    echo "REFUSED: the $PREV_STAGE tenant does not have this version yet. Apply transmit-$PREV_STAGE first, then start a new run here." >&2
+         bash scripts/tsvm.sh export "$WORK/previous.zip" &&
+         DRIFT_FIX="Capture from dev if it was changed there on purpose (a deleted journey becomes DELETED-), then merge; otherwise put the Git version back on the $PREV_STAGE tenant" \
+           python3 scripts/drift.py "$WORK/previous.zip" ); then
+    echo "REFUSED: the $PREV_STAGE tenant does not run the Git version. Fix it as said above (the $PREV_STAGE tenant first), then start a new run here." >&2
     exit 1
   fi
 fi

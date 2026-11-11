@@ -1,0 +1,78 @@
+name: Promotion status
+
+# Nightly (after the drift check) and on demand: compares the tenants with each other, dev tenant -> test tenant
+# and test tenant -> prod tenant, for the journeys and external connections in Git (main and prod), and says in
+# words what differs and the next step (Capture from dev, Confirm & apply, Request prod deploy).
+# Informational only: it never fails on a difference and never opens a pull request. The drift check is the one
+# that compares each tenant with Git and restores it.
+# Each tenant is exported in its own job (credentials are per environment); only the files that are in Git are
+# kept, passed to the report job as a 1-day artifact, and deleted at the end of the run.
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write   # delete this run's temporary artifacts
+
+jobs:
+  export:
+    name: Export ${{ matrix.stage }} tenant
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - { stage: dev, environment: dev, region: sbx }
+          - { stage: test, environment: test-readonly, region: us }
+          - { stage: prod, environment: prod-readonly, region: eu }
+    environment: ${{ matrix.environment }}
+    env:
+      TS_CLIENT_ID: ${{ secrets.TS_CLIENT_ID }}
+      TS_CLIENT_SECRET: ${{ secrets.TS_CLIENT_SECRET }}
+      TS_TENANT_ID: ${{ secrets.TS_TENANT_ID }}
+      TS_REGION: ${{ matrix.region }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - run: git fetch -q origin prod:refs/remotes/origin/prod
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
+      - name: Export the ${{ matrix.stage }} tenant
+        run: |
+          bash scripts/tsvm.sh export "$RUNNER_TEMP/tenant.zip"
+          python3 scripts/status.py collect "$RUNNER_TEMP/tenant.zip" "$RUNNER_TEMP/${{ matrix.stage }}"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: status-${{ matrix.stage }}
+          path: ${{ runner.temp }}/${{ matrix.stage }}
+          retention-days: 1
+          if-no-files-found: ignore
+
+  report:
+    name: Promotion status
+    needs: export
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - run: git fetch -q origin prod:refs/remotes/origin/prod
+      - run: python3 -c 'import yaml' 2>/dev/null || pip install pyyaml
+      - uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/tenants
+      - name: Compare the tenants
+        run: |
+          T="$RUNNER_TEMP/tenants"
+          python3 scripts/status.py report "$T/status-dev" "$T/status-test" "$T/status-prod"
+      - name: Delete the temporary exports
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          API="https://api.github.com/repos/${{ github.repository }}"
+          for id in $(curl -sf -H "Authorization: Bearer $GH_TOKEN" "$API/actions/runs/${{ github.run_id }}/artifacts" \
+                      | python3 -c 'import sys,json;print(" ".join(str(a["id"]) for a in json.load(sys.stdin)["artifacts"]))'); do
+            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$API/actions/artifacts/$id"
+          done
