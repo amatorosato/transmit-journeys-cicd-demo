@@ -6,9 +6,9 @@ Transmit journeys kept in Git and promoted between tenants with the Version Mana
 
 | GitHub environment | Tenant | Used by |
 |---|---|---|
-| `dev` | dev tenant: amato-rosato-sbx-demo (region `sbx`) | PR check (validate only) and Capture from dev (export) |
-| `test-readonly` | test tenant: telco-demo-tenant (region `us`) | drift check and Request prod deploy (export only) |
-| `prod-readonly` | prod tenant: Vodafone-CIAM-POC (region `eu`) | drift check (export only) |
+| `dev` | dev tenant: amato-rosato-sbx-demo (region `sbx`) | PR check (validate only), Capture from dev and Promotion status (export) |
+| `test-readonly` | test tenant: telco-demo-tenant (region `us`) | drift check, Request prod deploy and Promotion status (export only) |
+| `prod-readonly` | prod tenant: Vodafone-CIAM-POC (region `eu`) | drift check and Promotion status (export only) |
 
 GitHub never imports into a tenant: deploys are done only by HCP Terraform (see below). All jobs run on GitHub's
 runners (the three tenants have public APIs).
@@ -23,7 +23,8 @@ scripts/tsvm.sh      build / validate / import / export
 scripts/guard.py     safety + structure checks (refuses empty or non-selective packages)
 scripts/drift.py     compares Git with a tenant export
 scripts/capture.py   copies journeys from a tenant export into journeys/ (console -> Git)
-.github/workflows/   pr.yml, capture.yml, drift.yml, promote.yml, prod-window.yml
+scripts/status.py    compares the tenants with each other (Promotion status)
+.github/workflows/   pr.yml, capture.yml, drift.yml, status.yml, promote.yml, prod-window.yml
 terraform/           HCP Terraform: main.tf, deploy.sh, flatten.py, restore/
 ```
 
@@ -34,6 +35,7 @@ terraform/           HCP Terraform: main.tf, deploy.sh, flatten.py, restore/
 | **PR check** (`pr.yml`) | every pull request | build → guard → validate on `dev`. Nothing is imported. Required check on `main`. |
 | **Capture from dev** (`capture.yml`) | on demand (Run workflow) | exports the dev tenant and copies into Git the journeys changed in the console (journeys already in Git, the ids you name, and every id starting with the prefix, default `CICD-`) and their **external connections** (`connections/<id>.yaml`: the ones already in Git, the ones you name, and every connection the journeys use). Opens a PR, lists the secrets (credential aliases) the connections need on the test and prod tenants, and starts its check. |
 | **Drift check** (`drift.yml`) | nightly + on demand | exports the test and prod tenants and compares them with Git. **Git always wins:** when a tenant differs (edited in the console, or the latest version not applied), it opens a **restore pull request** (`restore/<stage>-tenant`, updated while open) with the diff. It only changes `terraform/restore/<stage>`: once merged, `transmit-<stage>` deploys the Git version again (Confirm & apply), the other workspaces plan no changes. |
+| **Promotion status** (`status.yml`) | nightly + on demand | compares the tenants **with each other**: dev tenant → test tenant and test tenant → prod tenant, for the journeys and connections in Git. Says in words what differs and the next step (*Capture from dev*, *Confirm & apply*, *Request prod deploy*). Informational: never red, never opens a pull request (the drift check compares each tenant with Git). |
 | **Request prod deploy** (`promote.yml`) | on demand (Run workflow), by the test team | optionally for **some journeys only** (by name; the connections they use come with them). Checks that the test tenant runs that version of `main`, then opens a pull request into the **`prod` branch** with what changes on the prod tenant, described in words (content frozen at the tested commit; other changes stay on test). Optional **maintenance window** (UTC). |
 | **Prod maintenance window** (`prod-window.yml`) | every 15 minutes + on demand | merges the pull requests into `prod` whose maintenance window has come (checks green). Then Confirm & apply on `transmit-prod`. |
 
@@ -59,7 +61,7 @@ Transmit has no Terraform provider: Terraform tracks one entry per journey and, 
 - **Pull request:** each workspace runs a speculative plan, reported as a check on the PR: the journeys that are new or changed on each tenant, and only the fields that change, e.g. `~ "Display Information #a57b0299 › action › title › value" = "`Signed in`" -> "`Welcome back`"` (`terraform/flatten.py` turns each journey into readable *step › field* lines; form fields are listed by name).
 - **Merge to `main`:** `transmit-dev` applies automatically (Auto-apply), `transmit-test` plans and waits: **Confirm & apply** is the approval. Production is not touched: `transmit-prod` follows the `prod` branch.
 - **Promotion to prod:** the test team runs **Request prod deploy** (optionally with a maintenance window). It opens a pull request `main` → `prod`; once merged (by hand or in the window), `transmit-prod` plans: **Confirm & apply**.
-- **Promotion gate:** before importing, `transmit-test` checks that the dev tenant already has exactly this version; if not, the apply is refused (*Apply transmit-dev first*). For prod the check is done when the deploy is requested: *Request prod deploy* refuses if the test tenant does not run that version.
+- **Promotion gate:** before importing, `transmit-test` checks that the dev tenant already runs exactly this version; if not, the apply is refused (e.g. a journey deleted in the dev tenant console and not captured yet: run *Capture from dev*, merge, and start a new run). For prod the check is done when the deploy is requested: *Request prod deploy* refuses if the test tenant does not run that version.
 - Workspace settings: execution mode Remote, Auto-apply on `transmit-dev` and Manual apply on the others, working directory `terraform`, VCS branch `main`, trigger paths `terraform/**`, `journeys/**` and `connections/**`, automatic speculative plans on.
 - Workspace variables: `TS_TENANT_ID`, `TS_REGION`, `TS_TENANT_NAME`, `TS_STAGE` as Terraform variables; `TS_CLIENT_ID`, `TS_CLIENT_SECRET` as sensitive **Environment** variables. On `transmit-test` and `transmit-prod`, the same for the previous stage with the `PREV_` prefix (`PREV_TS_TENANT_ID`, …, `PREV_TS_CLIENT_SECRET`).
 - External connections in `connections/` are deployed with the journeys and shown in the plan the same way (`terraform_data.connection["<name>"]`, e.g. `config › web_request › uri › value`). Their secrets are not exported: the credential aliases must exist on every tenant.
