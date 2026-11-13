@@ -71,7 +71,7 @@ versions:
     version_id: default_version
     state: version
     desc: default_version
-name: Journey2
+name: DELETED-Journey2
 created_date: 1794220381003
 type: anonymous
 config:
