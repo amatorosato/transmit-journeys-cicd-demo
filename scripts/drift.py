@@ -1,6 +1,7 @@
 """Compare the journeys in Git with what is live on the tenant.
 Usage: python3 scripts/drift.py <tenant-export.zip>
 Exit 1 if a journey in journeys/ is missing on the tenant or differs from Git.
+Soft-deleted journeys (DELETED-<name>) are not checked: they are dead, so a console edit on them is not drift.
 Git always wins: when a journey differs, the drift workflow opens a restore pull request; once merged, HCP
 Terraform deploys the Git version again on that tenant (after Confirm & apply).
 DRIFT_FIX (optional): what to do, in the messages (default: the restore pull request).
@@ -69,9 +70,9 @@ def main(export_zip):
         doc = yaml.safe_load(open(path))
         name = label(doc, fname)
         short = (doc or {}).get("name") or ((doc or {}).get("data") or {}).get("name") or fname[:-5]
-        if path not in live and short.startswith("DELETED-"):
-            print(f"OK    {name}: soft-deleted, not on {tenant}")
-            rows.append((name, "✅ deleted", ""))
+        if short.startswith("DELETED-"):   # soft-deleted: not checked, even if still on the tenant
+            print(f"SKIP  {name}: soft-deleted, not checked")
+            rows.append((name, "⏭️ deleted, ignored", ""))
             continue
         if path not in live:
             error(f"{short} is not deployed on {tenant}", f"{name} is in Git but not on {tenant}. {fix}.")
@@ -102,7 +103,7 @@ def main(export_zip):
         missing = [n for n, st, _ in rows if st.startswith("❌ not deployed")]
         with open(os.environ["DRIFT_REPORT"], "w") as f:
             f.write("".join(report) + "".join(f"#### {n}\n\nIn Git, not on {tenant}.\n" for n in missing))
-    sys.exit(0 if all(st.startswith("✅") for _, st, _ in rows) else 1)
+    sys.exit(0 if all(st.startswith(("✅", "⏭️")) for _, st, _ in rows) else 1)
 
 
 if __name__ == "__main__":
